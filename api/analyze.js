@@ -2,10 +2,9 @@
 //
 // Runs real checks against a live domain (reachability, HTTPS, a
 // mobile-friendly heuristic, page speed via Google PageSpeed Insights,
-// and a social-links scan of the fetched HTML). Google Reviews is
-// deliberately reported as "not automatically checked" rather than
-// guessed — there's no reliable free signal for that from a domain
-// alone, and a wrong guess is worse than an honest "we didn't check".
+// and a social-links scan of the fetched HTML). Google Reviews isn't
+// checked at all — there's no reliable free way to verify that from a
+// domain alone, and a wrong guess is worse than not showing it.
 //
 // No dependencies: uses the global fetch available in the Node 18+
 // runtime Vercel deploys by default.
@@ -170,10 +169,6 @@ module.exports = async (req, res) => {
     }
   }
 
-  // --- Google Reviews: not automatically checked ----------------------
-  const reviewsStatus = 'unknown';
-  const reviewsDesc = "We can't verify Google reviews automatically from a domain alone — check your Google Business Profile directly.";
-
   // --- Business name (best-effort, from <title>) ----------------------
   const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
   let businessName = titleMatch ? decodeEntities(titleMatch[1]).trim() : '';
@@ -193,20 +188,17 @@ module.exports = async (req, res) => {
     ok: true,
     businessName,
     town: domain,
-    domain,
     preparedDate: 'just now',
     overallScore,
     hasWebsiteStatus,
     mobileStatus,
     speedStatus,
-    reviewsStatus,
     sslStatus,
     socialStatus,
     descriptions: {
       hasWebsite: hasWebsiteDesc,
       mobile: mobileDesc,
       speed: speedDesc,
-      reviews: reviewsDesc,
       ssl: sslDesc,
       social: socialDesc,
     },

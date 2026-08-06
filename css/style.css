@@ -17,10 +17,6 @@
   --bad-ring: oklch(56% 0.18 25);
   --bad-pill-bg: oklch(95% 0.045 25);
   --bad-pill-fg: oklch(42% 0.16 25);
-
-  --unknown-ring: oklch(70% 0.006 75);
-  --unknown-pill-bg: oklch(93% 0.004 75);
-  --unknown-pill-fg: oklch(45% 0.01 75);
 }
 
 * { box-sizing: border-box; }
@@ -158,10 +154,9 @@ a:hover { color: var(--brand-hover); }
   color: #fff;
 }
 
-.dot--good    { background: var(--good-ring); }
-.dot--warn    { background: var(--warn-ring); }
-.dot--bad     { background: var(--bad-ring); }
-.dot--unknown { background: var(--unknown-ring); }
+.dot--good { background: var(--good-ring); }
+.dot--warn { background: var(--warn-ring); }
+.dot--bad  { background: var(--bad-ring); }
 
 .check-body { flex: 1; min-width: 0; }
 
@@ -182,10 +177,9 @@ a:hover { color: var(--brand-hover); }
   white-space: nowrap;
 }
 
-.pill--good    { background: var(--good-pill-bg); color: var(--good-pill-fg); }
-.pill--warn    { background: var(--warn-pill-bg); color: var(--warn-pill-fg); }
-.pill--bad     { background: var(--bad-pill-bg); color: var(--bad-pill-fg); }
-.pill--unknown { background: var(--unknown-pill-bg); color: var(--unknown-pill-fg); }
+.pill--good { background: var(--good-pill-bg); color: var(--good-pill-fg); }
+.pill--warn { background: var(--warn-pill-bg); color: var(--warn-pill-fg); }
+.pill--bad  { background: var(--bad-pill-bg); color: var(--bad-pill-fg); }
 
 /* Cost section */
 .cost-list {
@@ -198,6 +192,97 @@ a:hover { color: var(--brand-hover); }
   font-size: 14px;
   line-height: 1.5;
   margin: 0;
+}
+
+/* What To Fix First */
+.fix-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fix-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.fix-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.fix-text {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.fix-row--clear {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* 3-step "how it works" strip */
+.steps-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.step {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.step-num {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--brand);
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+
+.step-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.step-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.step-arrow {
+  color: var(--border);
+  font-size: 16px;
+  padding-top: 5px;
+  flex-shrink: 0;
 }
 
 /* Footer */
@@ -333,4 +418,6 @@ a:hover { color: var(--brand-hover); }
   .tool-wrap { padding: 32px 16px 48px; }
   .tool-title { font-size: 24px; }
   .check-form { flex-direction: column; }
+  .step-label { font-size: 11.5px; }
+  .step-sub { display: block; }
 }

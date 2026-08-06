@@ -27,34 +27,38 @@ third-party site directly — CORS blocks it — so this has to happen server-si
 | Page Speed | Google PageSpeed Insights (mobile performance score); falls back to a simple response-time check if PageSpeed is unavailable |
 | SSL / Security | Does HTTPS load without error? |
 | Social Media Presence | Does the page link to Facebook, Instagram, X/Twitter, LinkedIn, TikTok, YouTube, or Yelp? |
-| Google Reviews | **Not automatically checked.** There's no reliable free way to verify this from a domain alone, and a wrong guess is worse than an honest "not checked" — it's shown as a neutral gray "Not Checked" status instead of green/yellow/red. |
 
-The overall score is the average of the 5 categories that are actually
-measured (Reviews is excluded). The checklist descriptions are generated
-per-domain based on what was actually found — they're no longer static
-placeholder text on this page (the curated `/reports/<slug>` pages still use
-static copy, since those are hand-authored).
+Google Reviews isn't in the checklist at all — there's no reliable free way
+to verify that from a domain alone, and a wrong guess (or an always-neutral
+"not checked" row) wasn't worth the space.
+
+The overall score is the average of these 5 categories. The checklist
+descriptions are generated per-domain based on what was actually found —
+they're no longer static placeholder text on this page (the curated
+`/reports/<slug>` pages still use static copy, since those are
+hand-authored).
 
 Optional: set a `PAGESPEED_API_KEY` environment variable in your Vercel
 project (Settings → Environment Variables) for a higher-quota Google
 PageSpeed Insights key. It works without one at low volume, just less
 reliably under load.
 
-### "Here's What It Could Look Like"
+### "What To Fix First"
 
-The "before" box shows a live screenshot of the domain just checked, via
-[thum.io](https://www.thum.io/) (`https://image.thum.io/get/width/500/https://<domain>`)
-— a free screenshot-on-demand service, no API key or backend code needed.
-If it fails to load (some sites block screenshot crawlers, or the first
-capture of a domain can be slow), it falls back to the original striped
-placeholder automatically.
+Below the checklist, `js/report.js` ranks whatever came back `bad` or
+`warning` (bad first) into up to 3 short, actionable lines — e.g. "Turn on
+HTTPS — browsers flag your site as 'Not Secure' without it." Ranking order
+and copy live in `FIX_ORDER`/`FIX_META` in `js/report.js`. If everything's
+`good`, it shows a single "nothing urgent" line instead of an empty list.
+This runs identically for the interactive checker and the curated pages,
+since both feed off the same `*Status` fields.
 
-The "after" box is a static example of actual JT Builds Co work
-(`assets/mockup-after.png`), captioned as an example rather than implying
-it's a custom mockup of their specific site — there's no automatic mockup
-generation. On the curated `/reports/<slug>` pages, the "before" box also
-stays static (`assets/mockup-before.png`), since there's no `domain` field
-to key a live screenshot off of.
+### 3-step strip
+
+A static "Free report → Free mockup → No pressure" row above the footer,
+to lower the friction on clicking the CTA (it's step 2 of 3, not a
+commitment). Same markup on both `index.html` and `report-template.html`,
+no JS involved.
 
 ## Structure
 
@@ -85,7 +89,6 @@ For a hand-authored report instead of a live check:
      "hasWebsiteStatus": "good",
      "mobileStatus": "warning",
      "speedStatus": "warning",
-     "reviewsStatus": "good",
      "sslStatus": "good",
      "socialStatus": "bad"
    }
