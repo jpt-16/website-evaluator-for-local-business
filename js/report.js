@@ -70,8 +70,11 @@
 
     var grade = gradeFromScore(score);
     document.getElementById('gradeLetter').textContent = grade.letter;
-    var gradeCircle = document.getElementById('gradeCircle');
-    gradeCircle.className = 'grade-circle grade--' + grade.tone;
+    var ringColorVar = { good: '--good-ring', warn: '--warn-ring', bad: '--bad-ring' }[grade.tone];
+    var deg = Math.max(0, Math.min(360, Math.round((score / 100) * 360)));
+    var gradeRing = document.getElementById('gradeRing');
+    gradeRing.style.background =
+      'conic-gradient(var(' + ringColorVar + ') ' + deg + 'deg, rgba(255,255,255,.16) ' + deg + 'deg 360deg)';
 
     var descriptions = data.descriptions || {};
 
