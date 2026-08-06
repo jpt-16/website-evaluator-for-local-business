@@ -216,13 +216,27 @@ a:hover { color: var(--brand-hover); }
   justify-content: center;
   text-align: center;
   padding: 10px;
+  overflow: hidden;
+  position: relative;
 }
 
-.mockup-box span {
-  font-family: ui-monospace, Menlo, monospace;
+.mockup-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  display: block;
+}
+
+/* Shown only if the image fails to load (see the onerror handler in
+   markup) — the original striped placeholder text. */
+.mockup-fallback { display: none; }
+
+.mockup-caption {
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: .04em;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 8px;
 }
 
 .mockup-box--before {

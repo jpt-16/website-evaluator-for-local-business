@@ -34,6 +34,8 @@ function buildOne(template, slug, data) {
     '<script src="js/report.js"></script>',
     '<script src="../js/report.js"></script>'
   );
+  html = html.replace('src="assets/mockup-before.png"', 'src="../assets/mockup-before.png"');
+  html = html.replace('src="assets/mockup-after.png"', 'src="../assets/mockup-after.png"');
   if (data.businessName) {
     html = html.replace(
       '<title>Website Health Report</title>',
