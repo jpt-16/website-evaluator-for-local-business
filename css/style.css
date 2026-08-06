@@ -206,8 +206,12 @@ a:hover { color: var(--brand-hover); }
   gap: 14px;
 }
 
-.mockup-box {
+.mockup-col {
   flex: 1;
+  min-width: 0;
+}
+
+.mockup-box {
   height: 125px;
   border-radius: 8px;
   border: 1px solid var(--border);

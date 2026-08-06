@@ -67,6 +67,19 @@
         row.querySelector('.check-desc').textContent = descriptions[key];
       }
     });
+
+    // Live domain checks (index.html) include `domain` — swap the "before"
+    // box for an actual screenshot of the site just checked, instead of
+    // the generic static example. Curated reports (no `domain`) keep the
+    // static assets/mockup-before.png as-is.
+    var beforeImg = document.getElementById('mockupBeforeImg');
+    var beforeCaption = document.getElementById('mockupBeforeCaption');
+    if (beforeImg && data.domain) {
+      beforeImg.style.display = '';
+      if (beforeImg.nextElementSibling) beforeImg.nextElementSibling.style.display = 'none';
+      beforeImg.src = 'https://image.thum.io/get/width/500/https://' + data.domain;
+      if (beforeCaption) beforeCaption.textContent = data.domain;
+    }
   }
 
   // --- Interactive domain checker (index.html) ---------------------------

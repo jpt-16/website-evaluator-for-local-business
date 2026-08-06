@@ -193,6 +193,7 @@ module.exports = async (req, res) => {
     ok: true,
     businessName,
     town: domain,
+    domain,
     preparedDate: 'just now',
     overallScore,
     hasWebsiteStatus,

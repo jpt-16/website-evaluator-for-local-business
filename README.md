@@ -40,6 +40,22 @@ project (Settings → Environment Variables) for a higher-quota Google
 PageSpeed Insights key. It works without one at low volume, just less
 reliably under load.
 
+### "Here's What It Could Look Like"
+
+The "before" box shows a live screenshot of the domain just checked, via
+[thum.io](https://www.thum.io/) (`https://image.thum.io/get/width/500/https://<domain>`)
+— a free screenshot-on-demand service, no API key or backend code needed.
+If it fails to load (some sites block screenshot crawlers, or the first
+capture of a domain can be slow), it falls back to the original striped
+placeholder automatically.
+
+The "after" box is a static example of actual JT Builds Co work
+(`assets/mockup-after.png`), captioned as an example rather than implying
+it's a custom mockup of their specific site — there's no automatic mockup
+generation. On the curated `/reports/<slug>` pages, the "before" box also
+stays static (`assets/mockup-before.png`), since there's no `domain` field
+to key a live screenshot off of.
+
 ## Structure
 
 - `index.html` — the interactive checker page.
