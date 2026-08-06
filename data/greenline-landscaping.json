@@ -1,0 +1,13 @@
+{
+  "businessName": "Greenline Landscaping",
+  "town": "Millbrook, NY",
+  "preparedDate": "August 6, 2026",
+  "overallScore": 54,
+
+  "hasWebsiteStatus": "warning",
+  "mobileStatus": "bad",
+  "speedStatus": "bad",
+  "reviewsStatus": "good",
+  "sslStatus": "warning",
+  "socialStatus": "warning"
+}

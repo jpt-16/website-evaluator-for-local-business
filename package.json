@@ -1,0 +1,7 @@
+{
+  "name": "website-health-report",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build-reports.js"
+  }
+}
