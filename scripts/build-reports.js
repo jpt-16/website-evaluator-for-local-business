@@ -1,14 +1,14 @@
 // Generates reports/<slug>.html for each data/<slug>.json, by taking
-// index.html as a template and inlining that lead's data in place of
-// js/report-data.js. Run automatically by Vercel (see vercel.json) —
-// no dependencies, plain Node.
+// report-template.html as a template and inlining that lead's data in
+// place of js/report-data.js. Run automatically by Vercel (see
+// vercel.json) — no dependencies, plain Node.
 const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const DATA_DIR = path.join(ROOT, 'data');
 const OUT_DIR = path.join(ROOT, 'reports');
-const TEMPLATE_PATH = path.join(ROOT, 'index.html');
+const TEMPLATE_PATH = path.join(ROOT, 'report-template.html');
 
 function escapeForInlineScript(json) {
   // Prevent a value containing "</script>" from closing the tag early.

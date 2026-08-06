@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Website Health Report</title>
+<title>Free Website Health Report</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -11,106 +11,122 @@
 </head>
 <body>
 
-<main class="sheet" id="report">
+<div class="tool-wrap">
 
-  <header class="header">
-    <div>
-      <div class="eyebrow">Website Health Report</div>
-      <h1 class="business-name" id="businessName">Greenline Landscaping</h1>
-      <div class="subline"><span id="town">Millbrook, NY</span> &middot; Prepared <span id="preparedDate">August 6, 2026</span></div>
-    </div>
-    <div class="grade-circle" id="gradeCircle">
-      <div class="grade-letter" id="gradeLetter">C</div>
-      <div class="grade-score"><span id="overallScore">54</span>/100</div>
-    </div>
-  </header>
+  <section class="tool-intro">
+    <div class="eyebrow">Website Health Report</div>
+    <h1 class="tool-title">See what your website is costing you</h1>
+    <p class="tool-sub">Free, instant check &mdash; no signup. We look at your site the way a customer (and Google) does.</p>
 
-  <section class="block">
-    <div class="section-label">What We Found</div>
-    <ul class="checklist" id="checklist">
-      <li class="check-row" data-key="hasWebsite">
-        <div class="dot"><span class="dot-icon"></span></div>
-        <div class="check-body">
-          <div class="check-title">Has a Website</div>
-          <div class="check-desc">Yes, but it hasn't been touched in years and looks outdated to visitors.</div>
-        </div>
-        <div class="pill"></div>
-      </li>
-      <li class="check-row" data-key="mobile">
-        <div class="dot"><span class="dot-icon"></span></div>
-        <div class="check-body">
-          <div class="check-title">Mobile-Friendly</div>
-          <div class="check-desc">The site is hard to use on a phone, and that's how most customers will find you.</div>
-        </div>
-        <div class="pill"></div>
-      </li>
-      <li class="check-row" data-key="speed">
-        <div class="dot"><span class="dot-icon"></span></div>
-        <div class="check-body">
-          <div class="check-title">Page Speed</div>
-          <div class="check-desc">The site takes too long to load, so people leave before it even finishes.</div>
-        </div>
-        <div class="pill"></div>
-      </li>
-      <li class="check-row" data-key="reviews">
-        <div class="dot"><span class="dot-icon"></span></div>
-        <div class="check-body">
-          <div class="check-title">Google Reviews</div>
-          <div class="check-desc">Solid reviews, but they're not shown anywhere on the site itself.</div>
-        </div>
-        <div class="pill"></div>
-      </li>
-      <li class="check-row" data-key="ssl">
-        <div class="dot"><span class="dot-icon"></span></div>
-        <div class="check-body">
-          <div class="check-title">SSL / Security</div>
-          <div class="check-desc">Browsers show a "Not Secure" warning on the site, which scares visitors off.</div>
-        </div>
-        <div class="pill"></div>
-      </li>
-      <li class="check-row check-row--last" data-key="social">
-        <div class="dot"><span class="dot-icon"></span></div>
-        <div class="check-body">
-          <div class="check-title">Social Media Presence</div>
-          <div class="check-desc">There's a page out there, but the website never links to it.</div>
-        </div>
-        <div class="pill"></div>
-      </li>
-    </ul>
+    <form class="check-form" id="checkForm">
+      <input type="text" id="domainInput" name="domain" placeholder="yourbusiness.com" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+      <button type="submit" id="checkBtn">Check My Website</button>
+    </form>
+
+    <p class="status-msg" id="statusMsg" hidden></p>
   </section>
 
-  <section class="block">
-    <div class="section-label">What This Is Costing You</div>
-    <div class="cost-list">
-      <p>Most people search for a landscaper on their phone. If the site is slow or awkward there, they call the next name on the list.</p>
-      <p>A "Not Secure" warning sends people straight to a competitor's site, with no message and no phone call.</p>
-      <p>The reviews are good, but if people can't see them on the site, they don't know to trust the business yet.</p>
-    </div>
-  </section>
+  <main class="sheet" id="report" hidden>
 
-  <section class="block block--tight">
-    <div class="section-label">Here's What It Could Look Like</div>
-    <div class="mockup-row">
-      <div class="mockup-box mockup-box--before">
-        <span>before &mdash;<br>current site screenshot</span>
+    <header class="header">
+      <div>
+        <div class="eyebrow">Website Health Report</div>
+        <h1 class="business-name" id="businessName">Greenline Landscaping</h1>
+        <div class="subline"><span id="town">yourbusiness.com</span> &middot; Checked <span id="preparedDate">just now</span></div>
       </div>
-      <div class="mockup-box mockup-box--after">
-        <span>after &mdash;<br>mockup preview</span>
+      <div class="grade-circle" id="gradeCircle">
+        <div class="grade-letter" id="gradeLetter">C</div>
+        <div class="grade-score"><span id="overallScore">54</span>/100</div>
       </div>
-    </div>
-  </section>
+    </header>
 
-  <footer class="footer">
-    <div>
-      <div class="brand-name">JT Builds Co</div>
-      <div class="brand-tag">Web design for local businesses</div>
-    </div>
-    <a href="#" class="cta">Get a Free Mockup &rarr;</a>
-  </footer>
+    <section class="block">
+      <div class="section-label">What We Found</div>
+      <ul class="checklist" id="checklist">
+        <li class="check-row" data-key="hasWebsite">
+          <div class="dot"><span class="dot-icon"></span></div>
+          <div class="check-body">
+            <div class="check-title">Has a Website</div>
+            <div class="check-desc">Yes, but it hasn't been touched in years and looks outdated to visitors.</div>
+          </div>
+          <div class="pill"></div>
+        </li>
+        <li class="check-row" data-key="mobile">
+          <div class="dot"><span class="dot-icon"></span></div>
+          <div class="check-body">
+            <div class="check-title">Mobile-Friendly</div>
+            <div class="check-desc">The site is hard to use on a phone, and that's how most customers will find you.</div>
+          </div>
+          <div class="pill"></div>
+        </li>
+        <li class="check-row" data-key="speed">
+          <div class="dot"><span class="dot-icon"></span></div>
+          <div class="check-body">
+            <div class="check-title">Page Speed</div>
+            <div class="check-desc">The site takes too long to load, so people leave before it even finishes.</div>
+          </div>
+          <div class="pill"></div>
+        </li>
+        <li class="check-row" data-key="reviews">
+          <div class="dot"><span class="dot-icon"></span></div>
+          <div class="check-body">
+            <div class="check-title">Google Reviews</div>
+            <div class="check-desc">Solid reviews, but they're not shown anywhere on the site itself.</div>
+          </div>
+          <div class="pill"></div>
+        </li>
+        <li class="check-row" data-key="ssl">
+          <div class="dot"><span class="dot-icon"></span></div>
+          <div class="check-body">
+            <div class="check-title">SSL / Security</div>
+            <div class="check-desc">Browsers show a "Not Secure" warning on the site, which scares visitors off.</div>
+          </div>
+          <div class="pill"></div>
+        </li>
+        <li class="check-row check-row--last" data-key="social">
+          <div class="dot"><span class="dot-icon"></span></div>
+          <div class="check-body">
+            <div class="check-title">Social Media Presence</div>
+            <div class="check-desc">There's a page out there, but the website never links to it.</div>
+          </div>
+          <div class="pill"></div>
+        </li>
+      </ul>
+    </section>
 
-</main>
+    <section class="block">
+      <div class="section-label">What This Is Costing You</div>
+      <div class="cost-list">
+        <p>Most people find local businesses by searching on their phone. If your site is slow or hard to use there, they call the next name on the list.</p>
+        <p>A "Not Secure" warning or a broken mobile layout sends visitors straight to a competitor &mdash; no message, no phone call.</p>
+        <p>First impressions happen in seconds. A dated or slow website makes people wonder if the business itself is still around.</p>
+      </div>
+    </section>
 
-<script src="js/report-data.js"></script>
+    <section class="block block--tight">
+      <div class="section-label">Here's What It Could Look Like</div>
+      <div class="mockup-row">
+        <div class="mockup-box mockup-box--before">
+          <span>before &mdash;<br>current site screenshot</span>
+        </div>
+        <div class="mockup-box mockup-box--after">
+          <span>after &mdash;<br>mockup preview</span>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div>
+        <div class="brand-name">JT Builds Co</div>
+        <div class="brand-tag">Web design for local businesses</div>
+      </div>
+      <a href="#" class="cta">Get a Free Mockup &rarr;</a>
+    </footer>
+
+  </main>
+
+</div>
+
 <script src="js/report.js"></script>
 </body>
 </html>
