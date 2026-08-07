@@ -293,47 +293,76 @@
       statusMsg.className = 'status-msg' + (isError ? ' status-msg--error' : '');
     }
 
+    // FormSubmit has to be called from the browser, not from our own
+    // server — it identifies/activates a destination inbox by the
+    // Origin/Referer of the request, which a server-to-server call from
+    // Vercel doesn't have. Calling it server-side makes submissions
+    // silently vanish (no activation email, nothing).
+    var FORMSUBMIT_ENDPOINT = 'https://formsubmit.co/ajax/jptwohig16@gmail.com';
+
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       var fd = new FormData(form);
       var name = String(fd.get('name') || '').trim();
+      var email = String(fd.get('email') || '').trim();
+      var phone = String(fd.get('phone') || '').trim();
+      var message = String(fd.get('message') || '').trim();
+      var company = String(fd.get('company') || '').trim(); // honeypot
       var data = lastRenderedData || {};
+      var businessName = data.businessName || '';
+      var domain = data.domain || data.town || '';
+      var overallScore = data.overallScore != null ? data.overallScore : null;
 
-      var payload = {
-        name: name,
-        email: fd.get('email'),
-        phone: fd.get('phone'),
-        message: fd.get('message'),
-        company: fd.get('company'), // honeypot
-        businessName: data.businessName || '',
-        domain: data.domain || data.town || '',
-        overallScore: data.overallScore != null ? data.overallScore : null,
-      };
+      function showThanks() {
+        form.hidden = true;
+        var thanks = document.createElement('p');
+        thanks.id = 'contactThanks';
+        thanks.className = 'contact-thanks';
+        thanks.textContent = 'Thanks' + (name ? ', ' + name : '') + "! We'll be in touch soon.";
+        form.parentNode.appendChild(thanks);
+      }
+
+      // Bots fill the hidden honeypot field; pretend success and send nothing.
+      if (company) {
+        showThanks();
+        return;
+      }
 
       submitBtn.disabled = true;
       submitBtn.textContent = 'Sending…';
       setStatus(null);
 
+      // Fire-and-forget server-side log so a lead is never lost even if
+      // FormSubmit itself is slow/down — doesn't gate the UI on it.
       fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ name: name, email: email, phone: phone, message: message, businessName: businessName, domain: domain, overallScore: overallScore }),
+      }).catch(function () {});
+
+      fetch(FORMSUBMIT_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          _subject: 'New mockup request' + (businessName ? ' — ' + businessName : ''),
+          _template: 'table',
+          _captcha: 'false',
+          _replyto: email,
+          Name: name,
+          Email: email,
+          Phone: phone || '(not provided)',
+          Business: businessName || '(not provided)',
+          'Site checked': domain || '(not provided)',
+          Score: overallScore != null ? overallScore + '/100' : '(not available)',
+          Message: message || '(no message)',
+        }),
       })
-        .then(function (res) { return res.json(); })
-        .then(function (result) {
-          if (!result.ok) {
-            setStatus(result.message || 'Something went wrong — try again.', true);
-            return;
-          }
-          form.hidden = true;
-          var thanks = document.createElement('p');
-          thanks.id = 'contactThanks';
-          thanks.className = 'contact-thanks';
-          thanks.textContent = 'Thanks' + (name ? ', ' + name : '') + "! We'll be in touch soon.";
-          form.parentNode.appendChild(thanks);
+        .then(function (res) {
+          if (!res.ok) throw new Error('FormSubmit error ' + res.status);
+          showThanks();
         })
         .catch(function () {
-          setStatus('Something went wrong sending that — try again in a moment.', true);
+          setStatus("Something went wrong sending that — try again, or email us directly.", true);
         })
         .finally(function () {
           submitBtn.disabled = false;

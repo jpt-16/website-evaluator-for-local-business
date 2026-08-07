@@ -164,19 +164,28 @@ no JS involved.
 
 ### Contact form
 
-The "Ready For The Fix?" section (name, email, phone, message) posts to
-`api/contact.js`, which:
+The "Ready For The Fix?" section (name, email, phone, message) submits to
+two places at once, from the browser, in `js/report.js`'s
+`initContactForm()`:
 
-1. Always logs the submission server-side first (visible in Vercel's
-   function logs), so a lead is never silently lost even if email delivery
-   has a hiccup.
-2. Emails it via [FormSubmit](https://formsubmit.co) — no account or API
-   key required. It forwards straight to `jptwohig16@gmail.com` by
-   default, or to `CONTACT_TO_EMAIL` (Vercel project → Settings →
-   Environment Variables) if you ever want to point it elsewhere.
-3. Rejects obvious bot submissions via a hidden honeypot field
-   (`company`) — real visitors never fill it in; if it's non-empty the
-   function pretends success and does nothing else.
+1. **[FormSubmit](https://formsubmit.co)** — the actual email delivery, no
+   account or API key required. The browser itself POSTs directly to
+   `https://formsubmit.co/ajax/jptwohig16@gmail.com`. This has to happen
+   client-side rather than from our own server: FormSubmit ties a
+   submission to a destination inbox using the request's Origin/Referer
+   header, which only exists on a real browser request. A server-to-server
+   call (which is what the first version of this did) has no Origin header
+   at all, so FormSubmit silently drops it — no error, no activation
+   email, nothing.
+2. **`api/contact.js`** — fired at the same time, fire-and-forget, purely
+   to log the submission server-side (visible in Vercel's function logs)
+   as a safety net in case FormSubmit itself is briefly slow or
+   unreachable from a visitor's browser. It does not send any email
+   itself anymore.
+
+A hidden honeypot field (`company`) catches obvious bots — real visitors
+never fill it in; if it's non-empty, the form just shows the "thanks"
+message and skips both submissions.
 
 **One-time activation step:** FormSubmit requires the destination inbox to
 confirm it wants mail from a given site. The very first real submission
