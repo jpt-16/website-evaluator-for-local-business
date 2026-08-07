@@ -19,7 +19,11 @@ const PAGESPEED_TIMEOUT_MS = 15000;
 // match on "x.com" alone also matches inside "netflix.com"/"fedex.com",
 // and the previous fix for that (requiring a trailing slash) missed a
 // bare "https://x.com" link with nothing after it. This fixes both.
-const SOCIAL_RE = /(?:https?:)?\/\/(?:www\.)?(facebook\.com|instagram\.com|(?:twitter|x)\.com|linkedin\.com|tiktok\.com|youtube\.com|pinterest\.com|threads\.net|wa\.me|nextdoor\.com|snapchat\.com|yelp\.com)/i;
+// Allows any single subdomain label (not just "www.") — m.linkedin.com,
+// business.facebook.com, uk.linkedin.com, etc. — while still anchoring on
+// the real hostname so it can't match a substring inside an unrelated
+// domain (e.g. "netflix.com", "definitely-not-linkedin.com").
+const SOCIAL_RE = /(?:https?:)?\/\/(?:[a-z0-9-]+\.)?(facebook\.com|instagram\.com|(?:twitter|x)\.com|linkedin\.com|tiktok\.com|youtube\.com|pinterest\.com|threads\.net|wa\.me|nextdoor\.com|snapchat\.com|yelp\.com)/i;
 const TEL_LINK_RE = /href=["']tel:/i;
 const PHONE_TEXT_RE = /\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}/;
 const COPYRIGHT_YEAR_RE = /(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–—]\s*)?(\d{4})/gi;
