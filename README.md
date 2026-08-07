@@ -168,22 +168,23 @@ The "Ready For The Fix?" section (name, email, phone, message) posts to
 `api/contact.js`, which:
 
 1. Always logs the submission server-side first (visible in Vercel's
-   function logs), so a lead is never silently lost even if email isn't
-   configured yet.
-2. Emails it via [Resend](https://resend.com) if `RESEND_API_KEY` and
-   `CONTACT_TO_EMAIL` are set (Vercel project → Settings → Environment
-   Variables). Without those two, submissions still work for the visitor —
-   they just only show up in the logs.
+   function logs), so a lead is never silently lost even if email delivery
+   has a hiccup.
+2. Emails it via [FormSubmit](https://formsubmit.co) — no account or API
+   key required. It forwards straight to `jptwohig16@gmail.com` by
+   default, or to `CONTACT_TO_EMAIL` (Vercel project → Settings →
+   Environment Variables) if you ever want to point it elsewhere.
 3. Rejects obvious bot submissions via a hidden honeypot field
    (`company`) — real visitors never fill it in; if it's non-empty the
    function pretends success and does nothing else.
 
-To wire up real email notifications: create a free Resend account, get an
-API key, set `RESEND_API_KEY` and `CONTACT_TO_EMAIL` (your inbox) in
-Vercel. Optionally set `CONTACT_FROM_EMAIL` once you've verified your own
-sending domain in Resend — until then it falls back to Resend's shared
-`onboarding@resend.dev` test sender, which works but looks less polished
-in an inbox.
+**One-time activation step:** FormSubmit requires the destination inbox to
+confirm it wants mail from a given site. The very first real submission
+triggers a confirmation email to `jptwohig16@gmail.com` from FormSubmit —
+open it and click the activation link once. Every submission after that
+goes straight through with no further setup. (Test it once yourself after
+deploying so that first "activation" submission doesn't come from an
+actual lead.)
 
 The form passes along which business/domain/score prompted the inquiry
 (pulled from whatever was last rendered on the page), so a submission

@@ -1,12 +1,18 @@
 // Vercel serverless function: POST /api/contact
 //
-// Sends a lead's "get a free mockup" request via Resend (resend.com —
-// simple REST API, generous free tier). Every submission is also logged
-// server-side first, so nothing is lost if RESEND_API_KEY/CONTACT_TO_EMAIL
-// aren't configured yet — check Vercel's function logs as a fallback.
+// Sends a lead's "get a free mockup" request via FormSubmit
+// (formsubmit.co — free, no account/API key needed, just emails whatever
+// you POST it to the target address). Every submission is also logged
+// server-side first, so nothing is lost even if FormSubmit is slow/down —
+// check Vercel's function logs as a fallback.
 //
 // No dependencies: uses the global fetch available in the Node 18+
 // runtime Vercel deploys by default.
+//
+// One-time setup: the FIRST submission FormSubmit receives for a given
+// target email sends that inbox a confirmation link that has to be
+// clicked before any further emails go through. That's a FormSubmit
+// anti-spam requirement, not something this code can skip.
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -68,45 +74,36 @@ module.exports = async (req, res) => {
     at: new Date().toISOString(),
   }));
 
-  const apiKey = process.env.RESEND_API_KEY;
-  const to = process.env.CONTACT_TO_EMAIL;
+  const to = process.env.CONTACT_TO_EMAIL || 'jptwohig16@gmail.com';
 
-  if (apiKey && to) {
-    try {
-      const subject = 'New mockup request' + (businessName ? ' — ' + businessName : '');
-      const lines = [
-        'Name: ' + name,
-        'Email: ' + email,
-        phone ? 'Phone: ' + phone : null,
-        businessName ? 'Business: ' + businessName : null,
-        domain ? 'Site checked: ' + domain : null,
-        overallScore != null ? 'Score: ' + overallScore + '/100' : null,
-        '',
-        message ? 'Message:\n' + message : '(no message)',
-      ].filter((line) => line !== null).join('\n');
+  try {
+    const subject = 'New mockup request' + (businessName ? ' — ' + businessName : '');
 
-      const emailRes = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: 'Bearer ' + apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: process.env.CONTACT_FROM_EMAIL || 'Website Health Report <onboarding@resend.dev>',
-          to: [to],
-          reply_to: email,
-          subject,
-          text: lines,
-        }),
-      });
-      if (!emailRes.ok) {
-        console.error('[contact] Resend error', emailRes.status, await emailRes.text());
-      }
-    } catch (e) {
-      console.error('[contact] failed to send email', e);
+    const formSubmitRes = await fetch('https://formsubmit.co/ajax/' + encodeURIComponent(to), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        _subject: subject,
+        _template: 'table',
+        _captcha: 'false',
+        _replyto: email,
+        Name: name,
+        Email: email,
+        Phone: phone || '(not provided)',
+        Business: businessName || '(not provided)',
+        'Site checked': domain || '(not provided)',
+        Score: overallScore != null ? overallScore + '/100' : '(not available)',
+        Message: message || '(no message)',
+      }),
+    });
+    if (!formSubmitRes.ok) {
+      console.error('[contact] FormSubmit error', formSubmitRes.status, await formSubmitRes.text());
     }
-  } else {
-    console.warn('[contact] RESEND_API_KEY / CONTACT_TO_EMAIL not set — lead was only logged, not emailed.');
+  } catch (e) {
+    console.error('[contact] failed to send email via FormSubmit', e);
   }
 
   res.status(200).json({ ok: true });
