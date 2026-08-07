@@ -24,6 +24,10 @@
   --bad-ring: oklch(56% 0.18 25);
   --bad-pill-bg: oklch(95% 0.045 25);
   --bad-pill-fg: oklch(42% 0.16 25);
+
+  --unknown-ring: oklch(70% 0.006 75);
+  --unknown-pill-bg: oklch(93% 0.004 75);
+  --unknown-pill-fg: oklch(45% 0.01 75);
 }
 
 * { box-sizing: border-box; }
@@ -247,9 +251,10 @@ a:hover { color: var(--brand-hover); }
   color: #fff;
 }
 
-.dot--good { background: var(--good-ring); }
-.dot--warn { background: var(--warn-ring); color: oklch(24% 0.058 255); }
-.dot--bad  { background: var(--bad-ring); }
+.dot--good    { background: var(--good-ring); }
+.dot--warn    { background: var(--warn-ring); color: oklch(24% 0.058 255); }
+.dot--bad     { background: var(--bad-ring); }
+.dot--unknown { background: var(--unknown-ring); }
 
 .check-body { flex: 1; min-width: 0; }
 
@@ -275,9 +280,10 @@ a:hover { color: var(--brand-hover); }
   white-space: nowrap;
 }
 
-.pill--good { background: var(--good-pill-bg); color: var(--good-pill-fg); }
-.pill--warn { background: var(--warn-pill-bg); color: var(--warn-pill-fg); }
-.pill--bad  { background: var(--bad-pill-bg); color: var(--bad-pill-fg); }
+.pill--good    { background: var(--good-pill-bg); color: var(--good-pill-fg); }
+.pill--warn    { background: var(--warn-pill-bg); color: var(--warn-pill-fg); }
+.pill--bad     { background: var(--bad-pill-bg); color: var(--bad-pill-fg); }
+.pill--unknown { background: var(--unknown-pill-bg); color: var(--unknown-pill-fg); }
 
 /* Cost section */
 .cost-list {

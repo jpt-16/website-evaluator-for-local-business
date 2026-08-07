@@ -5,6 +5,10 @@
     good: { icon: '✓', tone: 'good', label: 'Good' },
     warning: { icon: '!', tone: 'warn', label: 'Needs Work' },
     bad: { icon: '✕', tone: 'bad', label: 'Failing' },
+    // Distinct from "warning" — this means we couldn't verify it, not
+    // that we checked and it came back mediocre. Currently only used by
+    // Accessibility/SEO when PageSpeed Insights itself fails.
+    unknown: { icon: '–', tone: 'unknown', label: 'Not Verified' },
   };
 
   var CATEGORY_STATUS_KEY = {

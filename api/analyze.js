@@ -83,8 +83,13 @@ async function fetchWithTimeout(url, opts, ms) {
   }
 }
 
+// null means "exclude from the score average" — used for 'unknown'
+// (couldn't verify), which shouldn't count against or for the site.
 function toneScore(tone) {
-  return tone === 'good' ? 95 : tone === 'warning' ? 60 : 25;
+  if (tone === 'good') return 95;
+  if (tone === 'warning') return 60;
+  if (tone === 'bad') return 25;
+  return null;
 }
 
 function scoreToStatus(score) {
@@ -373,13 +378,16 @@ module.exports = async (req, res) => {
     }
   }
 
+  // Distinct from a real "warning" verdict — this means we don't know,
+  // not that we checked and it was mediocre. Excluded from the score
+  // below rather than guessed at.
   if (!accessibilityStatus) {
-    accessibilityStatus = 'warning';
-    accessibilityDesc = "We couldn't fully verify accessibility this time — worth checking manually, since it affects how many visitors can actually use your site.";
+    accessibilityStatus = 'unknown';
+    accessibilityDesc = "We couldn't verify this on the last check (a technical issue on our end, not a reflection of your site) — try checking again in a bit.";
   }
   if (!seoStatus) {
-    seoStatus = 'warning';
-    seoDesc = "We couldn't fully verify SEO fundamentals this time — worth another look, since it affects how easily Google can find you.";
+    seoStatus = 'unknown';
+    seoDesc = "We couldn't verify this on the last check (a technical issue on our end, not a reflection of your site) — try checking again in a bit.";
   }
 
   // --- Site freshness (stale copyright year) ---------------------------
@@ -435,13 +443,16 @@ module.exports = async (req, res) => {
     businessName = businessName.slice(0, 60).replace(/\s+\S*$/, '') + '…';
   }
 
-  // --- Overall score: average of the 9 measured categories -----------
+  // --- Overall score: average of whichever categories we could actually
+  // verify (usually all 9 — 'unknown' only shows up when PageSpeed itself
+  // failed, and is excluded here rather than counted as a strike against
+  // the site).
   const measured = [
     hasWebsiteStatus, sslStatus, mobileStatus, speedStatus, socialStatus,
     accessibilityStatus, seoStatus, freshnessStatus, contactStatus,
-  ];
+  ].map(toneScore).filter((score) => score !== null);
   const overallScore = Math.round(
-    measured.reduce((sum, status) => sum + toneScore(status), 0) / measured.length
+    measured.reduce((sum, score) => sum + score, 0) / measured.length
   );
 
   const responseData = {

@@ -36,8 +36,15 @@ Accessibility and SEO piggyback on the same PageSpeed Insights call as Page
 Speed — Lighthouse computes all of them together, so there's no extra
 network cost. If that call fails entirely, Page Speed falls back to a
 timing heuristic, but Accessibility/SEO have no local equivalent, so they
-fall back to a neutral "couldn't fully verify this time" `warning` state
-instead of a guess.
+fall back to a distinct `unknown` status ("Not Verified" — a neutral gray
+pill, not amber) instead of a guess. This is deliberately different from
+a real `warning` verdict: `warning` means we checked and it was mediocre,
+`unknown` means we don't know. Conflating the two either overstates
+confidence in a guess or makes a real mediocre score look like a fluke.
+`unknown` is excluded from the overall score average entirely rather than
+being counted as a strike against the site, and won't show up in "What
+This Is Costing You" / "What To Fix First" — nothing to rank if we don't
+actually know.
 
 Google Reviews isn't in the checklist at all — there's no reliable free way
 to verify that from a domain alone, and a wrong guess (or an always-neutral
@@ -63,8 +70,7 @@ run out — `[analyze] PageSpeed Insights failed for ... — pagespeed http
 day'"` in the logs. When that call fails, Page Speed quietly falls back to
 a rough timing estimate (which still looks plausible, so it's easy not to
 notice), but Accessibility and SEO have no such fallback, so they show the
-same generic "couldn't verify" `warning` for every single site until the
-key is set.
+same "Not Verified" gray pill for every single site until the key is set.
 
 ### Headless rendering (not just a plain fetch)
 
