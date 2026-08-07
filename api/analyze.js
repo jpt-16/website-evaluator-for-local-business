@@ -53,7 +53,10 @@ const rateLimitLog = new Map(); // ip -> [timestamps]
 // domain (e.g. "netflix.com", "definitely-not-linkedin.com").
 const SOCIAL_RE = /(?:https?:)?\/\/(?:[a-z0-9-]+\.)?(facebook\.com|instagram\.com|(?:twitter|x)\.com|linkedin\.com|tiktok\.com|youtube\.com|pinterest\.com|threads\.net|wa\.me|nextdoor\.com|snapchat\.com|yelp\.com)/i;
 const TEL_LINK_RE = /href=["']tel:/i;
-const PHONE_TEXT_RE = /\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}/;
+// Separators between digit groups are optional (not required) and include
+// en/em dashes, so tightly-formatted numbers like "(555)123-4567" and
+// unspaced ones like "5551234567" still match, not just "555-123-4567".
+const PHONE_TEXT_RE = /(?:\+?1[\s.\-–—]?)?\(?\d{3}\)?[\s.\-–—]?\d{3}[\s.\-–—]?\d{4}\b/;
 const COPYRIGHT_YEAR_RE = /(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–—]\s*)?(\d{4})/gi;
 const JSONLD_RE = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
 const BUSINESS_TYPE_RE = /organization|localbusiness|business|store|shop|restaurant|professionalservice/i;
