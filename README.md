@@ -224,7 +224,7 @@ is on.
 
 ### Privacy policy
 
-The footer links to `https://jtbuildsco.com/privacy` on both the checker
+The footer links to `https://jtbuildsco.com/privacy-policy.html` on both the checker
 and curated report pages — there's no separate policy for this tool, it's
 expected to live under the main site's policy. That policy should mention
 what this tool specifically does that the rest of jtbuildsco.com doesn't:
