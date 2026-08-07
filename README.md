@@ -52,10 +52,19 @@ they're no longer static placeholder text on this page (the curated
 `/reports/<slug>` pages still use static copy, since those are
 hand-authored).
 
-Optional: set a `PAGESPEED_API_KEY` environment variable in your Vercel
-project (Settings → Environment Variables) for a higher-quota Google
-PageSpeed Insights key. It works without one at low volume, just less
-reliably under load.
+**Set a `PAGESPEED_API_KEY`** environment variable in your Vercel project
+(Settings → Environment Variables) — this isn't optional in practice. Get a
+free one at [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+by enabling the "PageSpeed Insights API" on any project. Without a key,
+requests use a shared anonymous quota (a global daily cap split across
+every unrelated project calling the API without a key) that's confirmed to
+run out — `[analyze] PageSpeed Insights failed for ... — pagespeed http
+429 — "Quota exceeded for quota metric 'Queries' and limit 'Queries per
+day'"` in the logs. When that call fails, Page Speed quietly falls back to
+a rough timing estimate (which still looks plausible, so it's easy not to
+notice), but Accessibility and SEO have no such fallback, so they show the
+same generic "couldn't verify" `warning` for every single site until the
+key is set.
 
 ### "What To Fix First"
 

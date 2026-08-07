@@ -156,15 +156,30 @@ module.exports = async (req, res) => {
 
   try {
     const key = process.env.PAGESPEED_API_KEY;
+    // Sent in both cases defensively: Google's API discovery docs for this
+    // endpoint document the `category` enum in uppercase, but the response's
+    // own category keys are lowercase, and without being able to test
+    // against the live API from this environment, it's cheaper to send
+    // both than to guess wrong and silently lose accessibility/SEO again.
+    const categoryParams =
+      'category=performance&category=PERFORMANCE' +
+      '&category=accessibility&category=ACCESSIBILITY' +
+      '&category=seo&category=SEO';
     const psUrl =
       'https://www.googleapis.com/pagespeedonline/v5/runPagespeed?strategy=mobile' +
-      '&category=performance&category=accessibility&category=seo&url=' +
+      '&' + categoryParams + '&url=' +
       encodeURIComponent(usedUrl) +
       (key ? '&key=' + key : '');
     const psRes = await fetchWithTimeout(psUrl, {}, PAGESPEED_TIMEOUT_MS);
-    if (!psRes.ok) throw new Error('pagespeed http ' + psRes.status);
+    if (!psRes.ok) {
+      const errBody = await psRes.text().catch(() => '');
+      throw new Error('pagespeed http ' + psRes.status + (errBody ? ' — ' + errBody.slice(0, 400) : ''));
+    }
     const psJson = await psRes.json();
     const cats = psJson.lighthouseResult.categories;
+    if (!cats.accessibility || !cats.seo) {
+      console.warn('[analyze] PageSpeed response missing categories for', usedUrl, '— got:', Object.keys(cats).join(', '));
+    }
 
     speedStatus = scoreToStatus(cats.performance.score);
     speedDesc = speedStatus === 'good'
@@ -191,6 +206,11 @@ module.exports = async (req, res) => {
         : 'Your site is missing basic SEO fundamentals, making it harder for Google to find and rank you.';
     }
   } catch (e) {
+    // Previously this failed silently — accessibility/SEO would always
+    // land on the generic "couldn't verify" fallback with no way to tell
+    // why. Now it's visible in Vercel's function logs.
+    console.error('[analyze] PageSpeed Insights failed for', usedUrl, '—', e && e.message ? e.message : e);
+
     // PageSpeed Insights is unavailable or timed out — fall back to a
     // rough estimate from how long our own fetch took to load the page.
     if (elapsedMs < 1200) {
