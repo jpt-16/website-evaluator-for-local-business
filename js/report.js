@@ -1,6 +1,15 @@
 (function () {
   var lastRenderedData = null;
 
+  // Vercel Web Analytics custom events — window.va is stubbed inline in
+  // <head> (queues calls until the real script loads), so this is safe to
+  // call immediately. No-ops entirely if Web Analytics isn't enabled on
+  // the Vercel project.
+  function track(name, props) {
+    if (typeof window.va !== 'function') return;
+    window.va('event', { name: name, data: props || undefined });
+  }
+
   var STATUS_STYLE = {
     good: { icon: '✓', tone: 'good', label: 'Good' },
     warning: { icon: '!', tone: 'warn', label: 'Needs Work' },
@@ -359,6 +368,7 @@
       })
         .then(function (res) {
           if (!res.ok) throw new Error('FormSubmit error ' + res.status);
+          track('contact_submitted', { businessName: businessName, domain: domain });
           showThanks();
         })
         .catch(function () {
@@ -466,12 +476,14 @@
       btn.textContent = 'Checking…';
       report.hidden = true;
       setStatus('Running a full site check — this can take up to 30 seconds…', false);
+      track('check_started', { domain: domain });
 
       fetch('/api/analyze?domain=' + encodeURIComponent(domain))
         .then(function (res) { return res.json(); })
         .then(function (result) {
           if (!result.ok) {
             setStatus(result.message || "We couldn't check that site. Try again.", true);
+            track('check_failed', { domain: domain, reason: result.message || 'unknown' });
             return;
           }
           setStatus(null);
@@ -479,9 +491,11 @@
           updateShareLink(result);
           report.hidden = false;
           report.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          track('check_completed', { domain: domain, score: result.overallScore });
         })
         .catch(function () {
           setStatus("Something went wrong checking that site. Try again in a moment.", true);
+          track('check_failed', { domain: domain, reason: 'network_error' });
         })
         .finally(function () {
           btn.disabled = false;

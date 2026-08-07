@@ -511,6 +511,17 @@ a:hover { color: var(--brand-hover); }
   margin-top: 3px;
 }
 
+.privacy-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-family: 'Archivo', system-ui, sans-serif;
+  font-size: 11px;
+  color: var(--on-dark-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.privacy-link:hover { color: var(--on-dark); }
+
 .cta {
   background: var(--brand);
   color: var(--brand-fg-on-brand);

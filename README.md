@@ -201,6 +201,39 @@ tells you exactly which report it came from without the visitor typing
 anything extra. It resets to a fresh, empty form each time a new report
 renders, so someone can check multiple sites and submit for each.
 
+### Analytics
+
+Both `index.html` and `report-template.html` load [Vercel Web
+Analytics](https://vercel.com/docs/analytics) via the plain-script snippet
+(no npm package, since this isn't a bundled app) — a stub `window.va`
+queues calls until the real script loads, then `js/report.js` fires
+custom events at the three funnel points that actually matter for a lead
+magnet:
+
+- `check_started` / `check_completed` / `check_failed` — when a visitor
+  runs the live checker, and whether it succeeded.
+- `contact_submitted` — when the "Get a Free Mockup" form is actually
+  sent, tagged with the business/domain it came from.
+
+**To turn this on**, enable "Web Analytics" for this project in the
+Vercel dashboard (Project → Analytics tab) — it's off by default. Once
+enabled, both pageviews and these custom events show up in the same
+dashboard, no extra deploy needed since the script snippet is already in
+the HTML. Nothing is tracked, and no cookies are set, until that toggle
+is on.
+
+### Privacy policy
+
+The footer links to `https://jtbuildsco.com/privacy` on both the checker
+and curated report pages — there's no separate policy for this tool, it's
+expected to live under the main site's policy. That policy should mention
+what this tool specifically does that the rest of jtbuildsco.com doesn't:
+contact form submissions are processed by FormSubmit.co (a third-party
+form-to-email service, see above), the domain someone types in gets
+fetched/analyzed server-side and cached briefly (~10 min) rather than
+stored permanently, and IP addresses are used briefly for rate-limiting
+before being discarded.
+
 ### Installable (PWA)
 
 `index.html` links a `manifest.json` plus icons in `icons/` (all generated
