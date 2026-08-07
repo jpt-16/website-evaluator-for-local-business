@@ -1,8 +1,9 @@
 // Vercel serverless function: GET /api/analyze?domain=example.com
 //
 // Runs real checks against a live domain (reachability, HTTPS, a
-// mobile-friendly heuristic, page speed via Google PageSpeed Insights,
-// and a social-links scan of the fetched HTML). Google Reviews isn't
+// mobile-friendly heuristic, page speed + accessibility + SEO via Google
+// PageSpeed Insights, a social-links scan, a stale-copyright check, and
+// a contact-info check of the fetched HTML). Google Reviews isn't
 // checked at all — there's no reliable free way to verify that from a
 // domain alone, and a wrong guess is worse than not showing it.
 //
@@ -14,6 +15,9 @@ const FETCH_TIMEOUT_MS = 8000;
 const PAGESPEED_TIMEOUT_MS = 15000;
 
 const SOCIAL_RE = /(facebook\.com|instagram\.com|twitter\.com|x\.com\/|linkedin\.com|tiktok\.com|youtube\.com|yelp\.com)/i;
+const TEL_LINK_RE = /href=["']tel:/i;
+const PHONE_TEXT_RE = /\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}/;
+const COPYRIGHT_YEAR_RE = /(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–—]\s*)?(\d{4})/gi;
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'", nbsp: ' ' };
 
 function decodeEntities(str) {
@@ -131,28 +135,55 @@ module.exports = async (req, res) => {
     ? 'We found a link to at least one social profile on your site.'
     : "We didn't find any links to social profiles on your site.";
 
-  // --- Page speed: Google PageSpeed Insights, with a timing fallback --
-  let speedStatus;
-  let speedDesc;
+  // --- Page speed, Accessibility, SEO: one Google PageSpeed Insights
+  // call covers all three Lighthouse categories, with a timing-based
+  // fallback for speed only if the API call itself fails (there's no
+  // local equivalent for accessibility/SEO, so those just go unverified).
+  function scoreToStatus(score) {
+    if (score >= 0.9) return 'good';
+    if (score >= 0.5) return 'warning';
+    return 'bad';
+  }
+
+  let speedStatus, speedDesc;
+  let accessibilityStatus, accessibilityDesc;
+  let seoStatus, seoDesc;
+
   try {
     const key = process.env.PAGESPEED_API_KEY;
     const psUrl =
-      'https://www.googleapis.com/pagespeedonline/v5/runPagespeed?strategy=mobile&category=performance&url=' +
+      'https://www.googleapis.com/pagespeedonline/v5/runPagespeed?strategy=mobile' +
+      '&category=performance&category=accessibility&category=seo&url=' +
       encodeURIComponent(usedUrl) +
       (key ? '&key=' + key : '');
     const psRes = await fetchWithTimeout(psUrl, {}, PAGESPEED_TIMEOUT_MS);
     if (!psRes.ok) throw new Error('pagespeed http ' + psRes.status);
     const psJson = await psRes.json();
-    const score = psJson.lighthouseResult.categories.performance.score; // 0..1
-    if (score >= 0.9) {
-      speedStatus = 'good';
-      speedDesc = 'Your site loads quickly on mobile.';
-    } else if (score >= 0.5) {
-      speedStatus = 'warning';
-      speedDesc = 'Your site loads a bit slowly on mobile — some visitors may leave before it finishes.';
-    } else {
-      speedStatus = 'bad';
-      speedDesc = 'Your site is slow to load on mobile, and slow sites lose visitors fast.';
+    const cats = psJson.lighthouseResult.categories;
+
+    speedStatus = scoreToStatus(cats.performance.score);
+    speedDesc = speedStatus === 'good'
+      ? 'Your site loads quickly on mobile.'
+      : speedStatus === 'warning'
+      ? 'Your site loads a bit slowly on mobile — some visitors may leave before it finishes.'
+      : 'Your site is slow to load on mobile, and slow sites lose visitors fast.';
+
+    if (cats.accessibility && cats.accessibility.score != null) {
+      accessibilityStatus = scoreToStatus(cats.accessibility.score);
+      accessibilityDesc = accessibilityStatus === 'good'
+        ? 'Your site follows good accessibility practices for screen readers and assistive tech.'
+        : accessibilityStatus === 'warning'
+        ? 'Some accessibility basics could use attention — a few visitors using assistive tech may have a rougher time.'
+        : 'Your site has real accessibility gaps, making it hard to use for visitors relying on assistive tech.';
+    }
+
+    if (cats.seo && cats.seo.score != null) {
+      seoStatus = scoreToStatus(cats.seo.score);
+      seoDesc = seoStatus === 'good'
+        ? 'Your site follows the basics Google looks for.'
+        : seoStatus === 'warning'
+        ? 'A few basic SEO fundamentals are missing or incomplete.'
+        : 'Your site is missing basic SEO fundamentals, making it harder for Google to find and rank you.';
     }
   } catch (e) {
     // PageSpeed Insights is unavailable or timed out — fall back to a
@@ -169,6 +200,51 @@ module.exports = async (req, res) => {
     }
   }
 
+  if (!accessibilityStatus) {
+    accessibilityStatus = 'warning';
+    accessibilityDesc = "We couldn't fully verify accessibility this time — worth checking manually, since it affects how many visitors can actually use your site.";
+  }
+  if (!seoStatus) {
+    seoStatus = 'warning';
+    seoDesc = "We couldn't fully verify SEO fundamentals this time — worth another look, since it affects how easily Google can find you.";
+  }
+
+  // --- Site freshness (stale copyright year) ---------------------------
+  let freshnessStatus = 'good';
+  let freshnessDesc = "We didn't find anything that signals the site is out of date.";
+  let latestCopyrightYear = null;
+  let copyrightMatch;
+  while ((copyrightMatch = COPYRIGHT_YEAR_RE.exec(html))) {
+    const y = parseInt(copyrightMatch[1], 10);
+    if (!latestCopyrightYear || y > latestCopyrightYear) latestCopyrightYear = y;
+  }
+  if (latestCopyrightYear) {
+    const yearsStale = new Date().getFullYear() - latestCopyrightYear;
+    if (yearsStale >= 2) {
+      freshnessStatus = 'bad';
+      freshnessDesc = 'Your site\'s footer still says © ' + latestCopyrightYear + ' — that\'s a quiet signal to visitors that nobody\'s minding the store.';
+    } else if (yearsStale === 1) {
+      freshnessStatus = 'warning';
+      freshnessDesc = 'Your site\'s footer still shows ' + latestCopyrightYear + ' — a year behind isn\'t alarming, but it\'s worth a refresh.';
+    } else {
+      freshnessStatus = 'good';
+      freshnessDesc = "Your site's footer shows a current copyright year.";
+    }
+  }
+
+  // --- Contact info visibility ------------------------------------------
+  let contactStatus, contactDesc;
+  if (TEL_LINK_RE.test(html)) {
+    contactStatus = 'good';
+    contactDesc = 'Your phone number is a tap-to-call link — easy for mobile visitors to reach you instantly.';
+  } else if (PHONE_TEXT_RE.test(html)) {
+    contactStatus = 'warning';
+    contactDesc = "Your phone number is on the site, but it's not a tap-to-call link — mobile visitors have to copy and dial it manually.";
+  } else {
+    contactStatus = 'bad';
+    contactDesc = "We couldn't find a phone number anywhere on the site — visitors have no fast way to reach you.";
+  }
+
   // --- Business name (best-effort, from <title>) ----------------------
   const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
   let businessName = titleMatch ? decodeEntities(titleMatch[1]).trim() : '';
@@ -178,8 +254,11 @@ module.exports = async (req, res) => {
     businessName = businessName.slice(0, 60).replace(/\s+\S*$/, '') + '…';
   }
 
-  // --- Overall score: average of the 5 measured categories -----------
-  const measured = [hasWebsiteStatus, sslStatus, mobileStatus, speedStatus, socialStatus];
+  // --- Overall score: average of the 9 measured categories -----------
+  const measured = [
+    hasWebsiteStatus, sslStatus, mobileStatus, speedStatus, socialStatus,
+    accessibilityStatus, seoStatus, freshnessStatus, contactStatus,
+  ];
   const overallScore = Math.round(
     measured.reduce((sum, status) => sum + toneScore(status), 0) / measured.length
   );
@@ -195,12 +274,20 @@ module.exports = async (req, res) => {
     speedStatus,
     sslStatus,
     socialStatus,
+    accessibilityStatus,
+    seoStatus,
+    freshnessStatus,
+    contactStatus,
     descriptions: {
       hasWebsite: hasWebsiteDesc,
       mobile: mobileDesc,
       speed: speedDesc,
       ssl: sslDesc,
       social: socialDesc,
+      accessibility: accessibilityDesc,
+      seo: seoDesc,
+      freshness: freshnessDesc,
+      contact: contactDesc,
     },
   });
 };

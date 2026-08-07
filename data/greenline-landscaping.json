@@ -8,5 +8,9 @@
   "mobileStatus": "bad",
   "speedStatus": "bad",
   "sslStatus": "warning",
+  "accessibilityStatus": "warning",
+  "seoStatus": "bad",
+  "freshnessStatus": "bad",
+  "contactStatus": "warning",
   "socialStatus": "warning"
 }

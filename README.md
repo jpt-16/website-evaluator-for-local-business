@@ -26,13 +26,27 @@ third-party site directly — CORS blocks it — so this has to happen server-si
 | Mobile-Friendly | Does the page have a `<meta name="viewport" content="width=device-width">` tag? |
 | Page Speed | Google PageSpeed Insights (mobile performance score); falls back to a simple response-time check if PageSpeed is unavailable |
 | SSL / Security | Does HTTPS load without error? |
+| Accessibility | PageSpeed Insights' accessibility score — same API call as Page Speed, just reading another field from the same response |
+| SEO Basics | PageSpeed Insights' SEO score (meta tags, crawlability, etc.) — likewise free from the same call |
+| Site Freshness | Is there a copyright year in the footer, and how stale is it? (2+ years old = failing) |
+| Contact Info | Is there a `tel:` link (tap-to-call), a plain phone number in the text, or nothing at all? |
 | Social Media Presence | Does the page link to Facebook, Instagram, X/Twitter, LinkedIn, TikTok, YouTube, or Yelp? |
+
+Accessibility and SEO piggyback on the same PageSpeed Insights call as Page
+Speed — Lighthouse computes all of them together, so there's no extra
+network cost. If that call fails entirely, Page Speed falls back to a
+timing heuristic, but Accessibility/SEO have no local equivalent, so they
+fall back to a neutral "couldn't fully verify this time" `warning` state
+instead of a guess.
 
 Google Reviews isn't in the checklist at all — there's no reliable free way
 to verify that from a domain alone, and a wrong guess (or an always-neutral
-"not checked" row) wasn't worth the space.
+"not checked" row) wasn't worth the space. "Best Practices" (Lighthouse's
+4th default category) is deliberately not surfaced either, to keep the
+checklist from growing past 9 rows — mostly overlaps with the SSL check
+anyway.
 
-The overall score is the average of these 5 categories. The checklist
+The overall score is the average of these 9 categories. The checklist
 descriptions are generated per-domain based on what was actually found —
 they're no longer static placeholder text on this page (the curated
 `/reports/<slug>` pages still use static copy, since those are

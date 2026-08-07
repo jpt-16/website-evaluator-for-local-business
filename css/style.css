@@ -574,14 +574,17 @@ a:hover { color: var(--brand-hover); }
 
 .tool-wrap .sheet { margin: 40px auto 0; }
 
-/* Print: one letter page, full bleed */
+/* Print: full bleed, letter-sized pages. The report now regularly runs
+   longer than one page (9 checklist rows + fix list + contact section),
+   so .sheet is left auto-height here rather than forced to a fixed
+   11in — a fixed height combined with the base rule's overflow:hidden
+   would silently clip everything past the first page. */
 @media print {
   @page { size: letter; margin: 0; }
   body { background: none; }
   .sheet {
     width: auto;
     min-height: 0;
-    height: 11in;
     margin: 0;
     box-shadow: none;
     border-radius: 0;

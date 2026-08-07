@@ -13,12 +13,16 @@
     speed: 'speedStatus',
     ssl: 'sslStatus',
     social: 'socialStatus',
+    accessibility: 'accessibilityStatus',
+    seo: 'seoStatus',
+    freshness: 'freshnessStatus',
+    contact: 'contactStatus',
   };
 
   // Shared business-priority order for both "What This Is Costing You"
   // and "What To Fix First" — same underlying issues, different framing
   // (impact vs. action). Not the checklist's display order.
-  var ISSUE_ORDER = ['hasWebsite', 'ssl', 'mobile', 'speed', 'social'];
+  var ISSUE_ORDER = ['hasWebsite', 'ssl', 'mobile', 'contact', 'speed', 'accessibility', 'seo', 'freshness', 'social'];
 
   // tipWarn falls back to tipBad (and vice versa) since curated reports
   // can set either status even where the live checker only ever produces
@@ -37,10 +41,30 @@
       tipBad: 'Most visitors are on their phone — a broken mobile layout loses them in seconds.',
       tipWarn: 'Double-check your mobile layout on an actual phone — something about it may not be resizing right.',
     },
+    contact: {
+      label: 'Add a tap-to-call number',
+      tipBad: "There's no phone number on the site at all — add one so visitors don't have to hunt for it.",
+      tipWarn: 'Turn your phone number into a tap-to-call link — right now visitors have to copy and dial it manually.',
+    },
     speed: {
       label: 'Speed up your site',
       tipBad: 'Slow pages lose visitors before they even finish loading.',
       tipWarn: 'Trim your load time where you can — a couple of seconds is often the difference.',
+    },
+    accessibility: {
+      label: 'Fix accessibility gaps',
+      tipBad: 'Some visitors using screen readers or assistive tech may not be able to use the site at all.',
+      tipWarn: 'A few accessibility basics could use attention before they turn into a bigger issue.',
+    },
+    seo: {
+      label: 'Shore up SEO basics',
+      tipBad: "Basic SEO fundamentals are missing, making it harder for Google to find and rank the site.",
+      tipWarn: 'A few SEO fundamentals are incomplete — worth tightening up.',
+    },
+    freshness: {
+      label: 'Refresh the site',
+      tipBad: "The footer still shows an old copyright year — a quiet signal to visitors that it hasn't been touched in a while.",
+      tipWarn: "The copyright year is a little behind — a small, easy fix.",
     },
     social: {
       label: 'Link your social profiles',
@@ -59,9 +83,25 @@
       tipBad: 'Most people find local businesses by searching on their phone. If the site is hard to use there, they call the next name on the list.',
       tipWarn: "Some visitors on their phone are seeing a layout that doesn't quite work — a quiet leak, not a dramatic one.",
     },
+    contact: {
+      tipBad: 'Visitors have no fast way to reach you — some will just move on rather than hunt for contact info.',
+      tipWarn: 'Visitors on their phone have to copy and dial your number manually instead of tapping to call.',
+    },
     speed: {
       tipBad: 'Every extra second of load time pushes more visitors to leave before they even see what you offer.',
       tipWarn: 'A slow-loading page loses a share of visitors before it finishes — often without you ever knowing.',
+    },
+    accessibility: {
+      tipBad: 'Visitors using screen readers or assistive tech may not be able to use parts of the site at all.',
+      tipWarn: 'Some visitors using assistive tech may have a rougher experience than they should.',
+    },
+    seo: {
+      tipBad: "You're harder to find in Google search results than you should be — that's fewer people finding you at all.",
+      tipWarn: "A few SEO gaps mean you're not showing up in search quite as well as you could.",
+    },
+    freshness: {
+      tipBad: 'A stale copyright year is a small thing that makes people quietly wonder if the business is still around.',
+      tipWarn: 'Nothing dramatic, but a slightly dated footer plants a small seed of doubt.',
     },
     social: {
       tipBad: "Visitors who'd follow or message you on social have no way to find those profiles from the site.",
