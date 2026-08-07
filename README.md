@@ -66,6 +66,59 @@ notice), but Accessibility and SEO have no such fallback, so they show the
 same generic "couldn't verify" `warning` for every single site until the
 key is set.
 
+### Headless rendering (not just a plain fetch)
+
+`api/analyze.js` renders the target page in a real headless Chromium
+(`puppeteer-core` + `@sparticuz/chromium`) instead of just fetching the raw
+HTML. This matters because a plain fetch only ever sees what the server
+sends on the initial response — any content injected by client-side
+JavaScript (very common for footer social icons on Wix/Squarespace/etc.
+site builders) would otherwise be invisible to every check that scans the
+HTML, most notably Social Media Presence.
+
+If the browser itself fails to launch for any reason (a bundle or runtime
+issue on a given deployment), it falls back to a plain fetch automatically
+— logged as `[analyze] headless render failed for ... — falling back to
+plain fetch`. The tool still works in that degraded mode rather than
+breaking outright, just blind to JS-injected content again.
+
+This adds real latency (launching a browser + navigating vs. one fetch),
+which is why `vercel.json` gives `api/analyze.js` a 60s timeout and 1536MB
+of memory — headless Chromium needs meaningfully more of both than a plain
+fetch did. If your Vercel plan doesn't support those values, Vercel's
+deploy will fail with a clear error naming the limit; lower them to fit.
+
+### Rate limiting + per-domain caching
+
+Both are intentionally simple, in-memory, best-effort — they live in the
+function instance's memory, so they reset on cold start and aren't shared
+across concurrent instances. That's a real limitation, not a bug: a
+determined abuser spread across many cold starts could still get through.
+For a lead-magnet tool at normal scale, it meaningfully reduces the common
+cases without needing an external store (Redis/Vercel KV) that would add
+setup you'd have to configure and pay for.
+
+- **Rate limit**: max 5 requests per IP per 60 seconds; anything past that
+  gets a 429 with a friendly message instead of hitting PageSpeed at all.
+- **Cache**: a successful result is reused for 10 minutes if the same
+  domain is checked again, so refreshing or re-checking the same site
+  doesn't burn another PageSpeed call.
+
+Both exist specifically to protect the PageSpeed quota discussed above
+from being burned through faster than necessary.
+
+### Business name + location from structured data
+
+`extractStructuredBusiness()` looks for `Organization`/`LocalBusiness`
+(and subtypes like `LandscapingBusiness`, `Plumber`, etc. — matched via a
+loose "contains 'business'/'organization'/etc." check against `@type`)
+JSON-LD structured data before falling back to the `<title>` tag. Title
+tags are often noisy ("Home | Best Landscaper in Millbrook | Free
+Quotes"), while a site's own structured data (when present) gives a clean
+business name and, if an address is included, an actual town/state — shown
+in the header as "domain.com · Millbrook, NY" instead of just the domain
+alone.
+
 ### "What To Fix First"
 
 Below the checklist, `js/report.js` ranks whatever came back `bad` or
@@ -180,6 +233,9 @@ checker at `/` needs the API function running to do anything.
 ## Deploying on Vercel
 
 No manual configuration needed — `vercel.json` sets the build command
-(`npm run build`), clean URLs, and a longer timeout on `api/analyze.js` (30s,
-to give the PageSpeed check room to run). Just import the repo in Vercel and
-deploy.
+(`npm run build`), clean URLs, and `api/analyze.js`'s timeout (60s) and
+memory (1536MB), both bumped up from earlier defaults to give headless
+Chromium room to launch and render on top of the PageSpeed call. Just
+import the repo in Vercel and deploy — `puppeteer-core` and
+`@sparticuz/chromium` are regular `dependencies` in `package.json`, so
+Vercel installs them automatically during the build.

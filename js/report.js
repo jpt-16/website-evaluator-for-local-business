@@ -372,7 +372,7 @@
       btn.disabled = true;
       btn.textContent = 'Checking…';
       report.hidden = true;
-      setStatus('Running a full site check — this can take up to 20 seconds…', false);
+      setStatus('Running a full site check — this can take up to 30 seconds…', false);
 
       fetch('/api/analyze?domain=' + encodeURIComponent(domain))
         .then(function (res) { return res.json(); })

@@ -1,24 +1,38 @@
 // Vercel serverless function: GET /api/analyze?domain=example.com
 //
-// Runs real checks against a live domain (reachability, HTTPS, a
+// Runs real checks against a live domain: reachability, HTTPS, a
 // mobile-friendly heuristic, page speed + accessibility + SEO via Google
-// PageSpeed Insights, a social-links scan, a stale-copyright check, and
-// a contact-info check of the fetched HTML). Google Reviews isn't
-// checked at all — there's no reliable free way to verify that from a
-// domain alone, and a wrong guess is worse than not showing it.
+// PageSpeed Insights, a social-links scan, a stale-copyright check, and a
+// contact-info check. Google Reviews isn't checked at all — there's no
+// reliable free way to verify that from a domain alone, and a wrong guess
+// is worse than not showing it.
 //
-// No dependencies: uses the global fetch available in the Node 18+
-// runtime Vercel deploys by default.
+// The page is rendered with a real headless Chromium (puppeteer-core +
+// @sparticuz/chromium) rather than a plain fetch, so content injected by
+// client-side JS — very common for social icons on site-builder platforms
+// like Wix/Squarespace — is actually visible to the checks below. If the
+// browser itself fails to launch (bundle/runtime issue on a given
+// deployment), this falls back to a plain fetch so the tool degrades
+// instead of breaking outright.
+
+const chromium = require('@sparticuz/chromium').default;
+const puppeteer = require('puppeteer-core');
 
 const UA = 'Mozilla/5.0 (compatible; JTBuildsCo-WebsiteHealthReport/1.0)';
 const FETCH_TIMEOUT_MS = 8000;
+const BROWSER_NAV_TIMEOUT_MS = 12000;
 const PAGESPEED_TIMEOUT_MS = 15000;
 
-// Anchored on the hostname itself (protocol + optional "www." immediately
-// before the platform domain) rather than a bare substring — a substring
-// match on "x.com" alone also matches inside "netflix.com"/"fedex.com",
-// and the previous fix for that (requiring a trailing slash) missed a
-// bare "https://x.com" link with nothing after it. This fixes both.
+// Best-effort only — these live in the function instance's memory, so
+// they reset on cold start and aren't shared across concurrent instances.
+// That's fine for what they're for: taking the edge off casual repeat
+// traffic and abuse, not providing a hard guarantee.
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const resultCache = new Map(); // domain -> { at, data }
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = 5;
+const rateLimitLog = new Map(); // ip -> [timestamps]
+
 // Allows any single subdomain label (not just "www.") — m.linkedin.com,
 // business.facebook.com, uk.linkedin.com, etc. — while still anchoring on
 // the real hostname so it can't match a substring inside an unrelated
@@ -27,6 +41,8 @@ const SOCIAL_RE = /(?:https?:)?\/\/(?:[a-z0-9-]+\.)?(facebook\.com|instagram\.co
 const TEL_LINK_RE = /href=["']tel:/i;
 const PHONE_TEXT_RE = /\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}/;
 const COPYRIGHT_YEAR_RE = /(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–—]\s*)?(\d{4})/gi;
+const JSONLD_RE = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+const BUSINESS_TYPE_RE = /organization|localbusiness|business|store|shop|restaurant|professionalservice/i;
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'", nbsp: ' ' };
 
 function decodeEntities(str) {
@@ -57,8 +73,134 @@ function toneScore(tone) {
   return tone === 'good' ? 95 : tone === 'warning' ? 60 : 25;
 }
 
+function scoreToStatus(score) {
+  if (score >= 0.9) return 'good';
+  if (score >= 0.5) return 'warning';
+  return 'bad';
+}
+
+function getClientIp(req) {
+  const fwd = req.headers && req.headers['x-forwarded-for'];
+  if (fwd) return String(fwd).split(',')[0].trim();
+  return (req.socket && req.socket.remoteAddress) || 'unknown';
+}
+
+// Returns false (and records nothing further) once an IP has made
+// RATE_LIMIT_MAX requests within the trailing window.
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const timestamps = (rateLimitLog.get(ip) || []).filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+  if (timestamps.length >= RATE_LIMIT_MAX) {
+    rateLimitLog.set(ip, timestamps);
+    return false;
+  }
+  timestamps.push(now);
+  rateLimitLog.set(ip, timestamps);
+  return true;
+}
+
+// Renders the page in a real headless browser so client-side-injected
+// content (social widgets, etc.) is visible, not just the initial HTML.
+async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
+  const browser = await puppeteer.launch({
+    args: chromium.args,
+    executablePath: await chromium.executablePath(),
+    headless: chromium.headless,
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setUserAgent(ua);
+    const t0 = Date.now();
+    let response, usedUrl, sslOk;
+    try {
+      response = await page.goto(httpsUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+      usedUrl = httpsUrl;
+      sslOk = true;
+    } catch (e) {
+      response = await page.goto(httpUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+      usedUrl = httpUrl;
+      sslOk = false;
+    }
+    // Give client-side widgets (social icons, embedded scripts) a beat to
+    // inject content after the initial DOM is ready, without waiting for
+    // every last network connection to go idle (some pages never do).
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const html = await page.content();
+    return {
+      statusCode: response ? response.status() : 0,
+      usedUrl,
+      sslOk,
+      html,
+      elapsedMs: Date.now() - t0,
+    };
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
+// Fallback if the headless browser itself fails to launch — a plain fetch
+// won't see JS-injected content, but the tool still works in a degraded
+// mode instead of breaking outright.
+async function fetchPlain(httpsUrl, httpUrl, ua) {
+  const fetchOpts = { headers: { 'User-Agent': ua, Accept: 'text/html,*/*' } };
+  try {
+    const t0 = Date.now();
+    const response = await fetchWithTimeout(httpsUrl, fetchOpts, FETCH_TIMEOUT_MS);
+    const html = await response.text();
+    return { statusCode: response.status, usedUrl: httpsUrl, sslOk: true, html, elapsedMs: Date.now() - t0 };
+  } catch (e) {
+    const t0 = Date.now();
+    const response = await fetchWithTimeout(httpUrl, fetchOpts, FETCH_TIMEOUT_MS);
+    const html = await response.text();
+    return { statusCode: response.status, usedUrl: httpUrl, sslOk: false, html, elapsedMs: Date.now() - t0 };
+  }
+}
+
+// Prefers Organization/LocalBusiness structured data (JSON-LD) for the
+// business name and location over the <title> tag, which is often noisy
+// ("Home | Best Landscaper in Millbrook | Free Quotes | ..."). Returns
+// null if no usable structured data is found.
+function extractStructuredBusiness(html) {
+  let match;
+  while ((match = JSONLD_RE.exec(html))) {
+    let data;
+    try {
+      data = JSON.parse(match[1]);
+    } catch (e) {
+      continue;
+    }
+    const candidates = Array.isArray(data) ? data : data['@graph'] || [data];
+    for (const node of candidates) {
+      if (!node || typeof node !== 'object') continue;
+      const types = Array.isArray(node['@type']) ? node['@type'] : [node['@type']];
+      const isBusiness = types.some((t) => typeof t === 'string' && BUSINESS_TYPE_RE.test(t));
+      if (isBusiness && node.name) {
+        let location = null;
+        const addr = node.address;
+        if (addr && typeof addr === 'object') {
+          const locality = addr.addressLocality;
+          const region = addr.addressRegion;
+          location = locality && region ? locality + ', ' + region : locality || null;
+        }
+        return { name: String(node.name).trim(), location };
+      }
+    }
+  }
+  return null;
+}
+
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
+
+  const ip = getClientIp(req);
+  if (!checkRateLimit(ip)) {
+    res.status(429).json({
+      ok: false,
+      error: 'rate_limited',
+      message: "You're checking sites a bit fast — wait a minute and try again.",
+    });
+    return;
+  }
 
   const domain = normalizeDomain(req.query.domain);
   if (!domain) {
@@ -70,36 +212,33 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const httpsUrl = 'https://' + domain;
-  const httpUrl = 'http://' + domain;
-  const fetchOpts = { headers: { 'User-Agent': UA, Accept: 'text/html,*/*' } };
-
-  let response = null;
-  let usedUrl = null;
-  let sslOk = false;
-  let elapsedMs = 0;
-  let html = '';
-
-  try {
-    const t0 = Date.now();
-    response = await fetchWithTimeout(httpsUrl, fetchOpts, FETCH_TIMEOUT_MS);
-    html = await response.text();
-    elapsedMs = Date.now() - t0;
-    usedUrl = httpsUrl;
-    sslOk = true;
-  } catch (e) {
-    response = null;
+  const cached = resultCache.get(domain);
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+    res.status(200).json(cached.data);
+    return;
   }
 
-  if (!response) {
+  const httpsUrl = 'https://' + domain;
+  const httpUrl = 'http://' + domain;
+
+  let statusCode, usedUrl, sslOk, html, elapsedMs;
+  try {
+    const rendered = await renderWithBrowser(httpsUrl, httpUrl, UA, BROWSER_NAV_TIMEOUT_MS);
+    statusCode = rendered.statusCode;
+    usedUrl = rendered.usedUrl;
+    sslOk = rendered.sslOk;
+    html = rendered.html;
+    elapsedMs = rendered.elapsedMs;
+  } catch (browserErr) {
+    console.error('[analyze] headless render failed for', domain, '— falling back to plain fetch —', browserErr && browserErr.message);
     try {
-      const t0 = Date.now();
-      response = await fetchWithTimeout(httpUrl, fetchOpts, FETCH_TIMEOUT_MS);
-      html = await response.text();
-      elapsedMs = Date.now() - t0;
-      usedUrl = httpUrl;
-      sslOk = false;
-    } catch (e) {
+      const plain = await fetchPlain(httpsUrl, httpUrl, UA);
+      statusCode = plain.statusCode;
+      usedUrl = plain.usedUrl;
+      sslOk = plain.sslOk;
+      html = plain.html;
+      elapsedMs = plain.elapsedMs;
+    } catch (fetchErr) {
       res.status(200).json({
         ok: false,
         error: 'unreachable',
@@ -109,7 +248,6 @@ module.exports = async (req, res) => {
     }
   }
 
-  const statusCode = response.status;
   const reachableOk = statusCode >= 200 && statusCode < 400;
 
   // --- Has a website ------------------------------------------------
@@ -148,31 +286,20 @@ module.exports = async (req, res) => {
   // call covers all three Lighthouse categories, with a timing-based
   // fallback for speed only if the API call itself fails (there's no
   // local equivalent for accessibility/SEO, so those just go unverified).
-  function scoreToStatus(score) {
-    if (score >= 0.9) return 'good';
-    if (score >= 0.5) return 'warning';
-    return 'bad';
-  }
-
   let speedStatus, speedDesc;
   let accessibilityStatus, accessibilityDesc;
   let seoStatus, seoDesc;
 
   try {
     const key = process.env.PAGESPEED_API_KEY;
-    // Masked diagnostic only — never logs the full key. Lets us confirm
-    // whether Vercel is actually injecting the env var at all, and
-    // whether its value matches what was set in Google Cloud, without
-    // exposing the secret in logs.
+    // Masked diagnostic only — never logs the full key.
     console.log(
       '[analyze] PAGESPEED_API_KEY present:', !!key,
       key ? 'length: ' + key.length + ' looks-like: ' + key.slice(0, 4) + '...' + key.slice(-4) : ''
     );
     // Sent in both cases defensively: Google's API discovery docs for this
     // endpoint document the `category` enum in uppercase, but the response's
-    // own category keys are lowercase, and without being able to test
-    // against the live API from this environment, it's cheaper to send
-    // both than to guess wrong and silently lose accessibility/SEO again.
+    // own category keys are lowercase.
     const categoryParams =
       'category=performance&category=PERFORMANCE' +
       '&category=accessibility&category=ACCESSIBILITY' +
@@ -218,13 +345,7 @@ module.exports = async (req, res) => {
         : 'Your site is missing basic SEO fundamentals, making it harder for Google to find and rank you.';
     }
   } catch (e) {
-    // Previously this failed silently — accessibility/SEO would always
-    // land on the generic "couldn't verify" fallback with no way to tell
-    // why. Now it's visible in Vercel's function logs.
     console.error('[analyze] PageSpeed Insights failed for', usedUrl, '—', e && e.message ? e.message : e);
-
-    // PageSpeed Insights is unavailable or timed out — fall back to a
-    // rough estimate from how long our own fetch took to load the page.
     if (elapsedMs < 1200) {
       speedStatus = 'good';
       speedDesc = 'Your site responded quickly in our check.';
@@ -282,10 +403,18 @@ module.exports = async (req, res) => {
     contactDesc = "We couldn't find a phone number anywhere on the site — visitors have no fast way to reach you.";
   }
 
-  // --- Business name (best-effort, from <title>) ----------------------
-  const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
-  let businessName = titleMatch ? decodeEntities(titleMatch[1]).trim() : '';
-  businessName = businessName.split(/\s[|\-–·•—]\s/)[0].trim();
+  // --- Business name + location (structured data first, <title> fallback)
+  const structured = extractStructuredBusiness(html);
+  let businessName, location;
+  if (structured && structured.name) {
+    businessName = structured.name;
+    location = structured.location;
+  } else {
+    const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+    businessName = titleMatch ? decodeEntities(titleMatch[1]).trim() : '';
+    businessName = businessName.split(/\s[|\-–·•—]\s/)[0].trim();
+    location = null;
+  }
   if (!businessName) businessName = domain;
   if (businessName.length > 60) {
     businessName = businessName.slice(0, 60).replace(/\s+\S*$/, '') + '…';
@@ -300,10 +429,11 @@ module.exports = async (req, res) => {
     measured.reduce((sum, status) => sum + toneScore(status), 0) / measured.length
   );
 
-  res.status(200).json({
+  const responseData = {
     ok: true,
     businessName,
     town: domain,
+    location,
     preparedDate: 'just now',
     overallScore,
     hasWebsiteStatus,
@@ -326,5 +456,8 @@ module.exports = async (req, res) => {
       freshness: freshnessDesc,
       contact: contactDesc,
     },
-  });
+  };
+
+  resultCache.set(domain, { at: Date.now(), data: responseData });
+  res.status(200).json(responseData);
 };

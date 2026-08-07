@@ -3,5 +3,9 @@
   "private": true,
   "scripts": {
     "build": "node scripts/build-reports.js"
+  },
+  "dependencies": {
+    "@sparticuz/chromium": "149.0.0",
+    "puppeteer-core": "25.5.0"
   }
 }
