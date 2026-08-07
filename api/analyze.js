@@ -156,6 +156,14 @@ module.exports = async (req, res) => {
 
   try {
     const key = process.env.PAGESPEED_API_KEY;
+    // Masked diagnostic only — never logs the full key. Lets us confirm
+    // whether Vercel is actually injecting the env var at all, and
+    // whether its value matches what was set in Google Cloud, without
+    // exposing the secret in logs.
+    console.log(
+      '[analyze] PAGESPEED_API_KEY present:', !!key,
+      key ? 'length: ' + key.length + ' looks-like: ' + key.slice(0, 4) + '...' + key.slice(-4) : ''
+    );
     // Sent in both cases defensively: Google's API discovery docs for this
     // endpoint document the `category` enum in uppercase, but the response's
     // own category keys are lowercase, and without being able to test
