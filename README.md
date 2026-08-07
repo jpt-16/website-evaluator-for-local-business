@@ -60,10 +60,22 @@ to lower the friction on clicking the CTA (it's step 2 of 3, not a
 commitment). Same markup on both `index.html` and `report-template.html`,
 no JS involved.
 
+### Installable (PWA)
+
+`index.html` links a `manifest.json` plus icons in `icons/` (all generated
+from the same navy + lavender checkmark badge used in the checklist itself).
+On mobile, "Add to Home Screen" gives it a real icon and opens full-screen,
+no browser chrome. This is polish, not a load-bearing feature — it's a
+one-or-twice-use tool, not something people install to use daily. The
+curated `/reports/<slug>` pages get the matching favicon + theme color for a
+consistent tab, but skip the manifest/apple-touch-icon since they aren't the
+installable surface.
+
 ## Structure
 
 - `index.html` — the interactive checker page.
 - `api/analyze.js` — the serverless function that runs the real checks.
+- `manifest.json` / `icons/` — PWA manifest and icon set for `index.html`.
 - `css/style.css` — all styling (shared by the checker and the report card).
 - `js/report.js` — shared rendering logic: computes the letter grade + color
   tier from a score, sets each checklist row's icon/pill/description, and

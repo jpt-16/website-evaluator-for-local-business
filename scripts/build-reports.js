@@ -27,6 +27,10 @@ function buildOne(template, slug, data) {
     '<link rel="stylesheet" href="../css/style.css">'
   );
   html = html.replace(
+    'href="icons/favicon-32.png"',
+    'href="../icons/favicon-32.png"'
+  );
+  html = html.replace(
     '<script src="js/report-data.js"></script>',
     dataScript
   );
