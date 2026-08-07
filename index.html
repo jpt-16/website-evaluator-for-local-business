@@ -134,14 +134,31 @@
         </div>
       </section>
 
+      <section class="block contact-section" id="contactSection">
+        <div class="section-title">Ready For The Fix?</div>
+        <p class="contact-sub">Tell us a bit about your business and we'll follow up with a free mockup &mdash; no obligation.</p>
+
+        <form class="contact-form" id="contactForm">
+          <input type="text" name="company" class="hp-field" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <div class="contact-row">
+            <input type="text" id="contactName" name="name" placeholder="Your name" required>
+            <input type="email" id="contactEmail" name="email" placeholder="Email address" required>
+          </div>
+          <input type="tel" id="contactPhone" name="phone" placeholder="Phone (optional)">
+          <textarea id="contactMessage" name="message" placeholder="Anything you want us to know? (optional)" rows="3"></textarea>
+          <button type="submit" id="contactSubmit" class="cta">Send My Info &rarr;</button>
+          <p class="status-msg" id="contactStatusMsg" hidden></p>
+        </form>
+      </section>
+
     </div>
 
     <footer class="footer">
       <div>
-        <div class="brand-name">JT Builds Co<span class="accent-dot">.</span></div>
+        <a href="https://jtbuildsco.com" target="_blank" rel="noopener" class="brand-name">JT Builds Co<span class="accent-dot">.</span></a>
         <div class="brand-tag">Web design for local businesses</div>
       </div>
-      <a href="https://jtbuildsco.com" target="_blank" rel="noopener" class="cta">Get a Free Mockup &rarr;</a>
+      <a href="#contactSection" class="cta">Get a Free Mockup &rarr;</a>
     </footer>
 
   </main>

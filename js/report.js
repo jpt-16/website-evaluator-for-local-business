@@ -1,4 +1,6 @@
 (function () {
+  var lastRenderedData = null;
+
   var STATUS_STYLE = {
     good: { icon: '✓', tone: 'good', label: 'Good' },
     warning: { icon: '!', tone: 'warn', label: 'Needs Work' },
@@ -102,6 +104,8 @@
 
   function render(data) {
     data = data || {};
+    lastRenderedData = data;
+    resetContactSection();
 
     document.getElementById('businessName').textContent = data.businessName || 'Greenline Landscaping';
     document.getElementById('town').textContent = data.town || 'Millbrook, NY';
@@ -217,6 +221,81 @@
     });
   }
 
+  // --- Contact form --------------------------------------------------
+  function resetContactSection() {
+    var form = document.getElementById('contactForm');
+    if (!form) return;
+    form.hidden = false;
+    form.reset();
+    var thanks = document.getElementById('contactThanks');
+    if (thanks) thanks.remove();
+    var statusMsg = document.getElementById('contactStatusMsg');
+    if (statusMsg) { statusMsg.hidden = true; statusMsg.textContent = ''; }
+  }
+
+  function initContactForm() {
+    var form = document.getElementById('contactForm');
+    if (!form) return;
+
+    var statusMsg = document.getElementById('contactStatusMsg');
+    var submitBtn = document.getElementById('contactSubmit');
+
+    function setStatus(text, isError) {
+      if (!text) { statusMsg.hidden = true; statusMsg.textContent = ''; return; }
+      statusMsg.hidden = false;
+      statusMsg.textContent = text;
+      statusMsg.className = 'status-msg' + (isError ? ' status-msg--error' : '');
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var fd = new FormData(form);
+      var name = String(fd.get('name') || '').trim();
+      var data = lastRenderedData || {};
+
+      var payload = {
+        name: name,
+        email: fd.get('email'),
+        phone: fd.get('phone'),
+        message: fd.get('message'),
+        company: fd.get('company'), // honeypot
+        businessName: data.businessName || '',
+        domain: data.domain || data.town || '',
+        overallScore: data.overallScore != null ? data.overallScore : null,
+      };
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending…';
+      setStatus(null);
+
+      fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+        .then(function (res) { return res.json(); })
+        .then(function (result) {
+          if (!result.ok) {
+            setStatus(result.message || 'Something went wrong — try again.', true);
+            return;
+          }
+          form.hidden = true;
+          var thanks = document.createElement('p');
+          thanks.id = 'contactThanks';
+          thanks.className = 'contact-thanks';
+          thanks.textContent = 'Thanks' + (name ? ', ' + name : '') + "! We'll be in touch soon.";
+          form.parentNode.appendChild(thanks);
+        })
+        .catch(function () {
+          setStatus('Something went wrong sending that — try again in a moment.', true);
+        })
+        .finally(function () {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Send My Info →';
+        });
+    });
+  }
+
   // --- Interactive domain checker (index.html) ---------------------------
   function normalizeDomainInput(raw) {
     var v = (raw || '').trim();
@@ -283,5 +362,6 @@
     if (window.reportData) render(window.reportData);
     // index.html has no reportData — it's the live checker instead.
     initChecker();
+    initContactForm();
   });
 })();

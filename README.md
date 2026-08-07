@@ -60,6 +60,35 @@ to lower the friction on clicking the CTA (it's step 2 of 3, not a
 commitment). Same markup on both `index.html` and `report-template.html`,
 no JS involved.
 
+### Contact form
+
+The "Ready For The Fix?" section (name, email, phone, message) posts to
+`api/contact.js`, which:
+
+1. Always logs the submission server-side first (visible in Vercel's
+   function logs), so a lead is never silently lost even if email isn't
+   configured yet.
+2. Emails it via [Resend](https://resend.com) if `RESEND_API_KEY` and
+   `CONTACT_TO_EMAIL` are set (Vercel project → Settings → Environment
+   Variables). Without those two, submissions still work for the visitor —
+   they just only show up in the logs.
+3. Rejects obvious bot submissions via a hidden honeypot field
+   (`company`) — real visitors never fill it in; if it's non-empty the
+   function pretends success and does nothing else.
+
+To wire up real email notifications: create a free Resend account, get an
+API key, set `RESEND_API_KEY` and `CONTACT_TO_EMAIL` (your inbox) in
+Vercel. Optionally set `CONTACT_FROM_EMAIL` once you've verified your own
+sending domain in Resend — until then it falls back to Resend's shared
+`onboarding@resend.dev` test sender, which works but looks less polished
+in an inbox.
+
+The form passes along which business/domain/score prompted the inquiry
+(pulled from whatever was last rendered on the page), so a submission
+tells you exactly which report it came from without the visitor typing
+anything extra. It resets to a fresh, empty form each time a new report
+renders, so someone can check multiple sites and submit for each.
+
 ### Installable (PWA)
 
 `index.html` links a `manifest.json` plus icons in `icons/` (all generated
@@ -75,6 +104,7 @@ installable surface.
 
 - `index.html` — the interactive checker page.
 - `api/analyze.js` — the serverless function that runs the real checks.
+- `api/contact.js` — the serverless function behind the contact form.
 - `manifest.json` / `icons/` — PWA manifest and icon set for `index.html`.
 - `css/style.css` — all styling (shared by the checker and the report card).
 - `js/report.js` — shared rendering logic: computes the letter grade + color

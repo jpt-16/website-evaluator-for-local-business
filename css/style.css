@@ -28,6 +28,8 @@
 
 * { box-sizing: border-box; }
 
+html { scroll-behavior: smooth; }
+
 /* .sheet's own display:flex has equal specificity to the UA [hidden]
    rule and loads after it, so it would otherwise win and show through. */
 [hidden] { display: none !important; }
@@ -388,6 +390,73 @@ a:hover { color: var(--brand-hover); }
   flex-shrink: 0;
 }
 
+/* Contact form */
+.contact-section { margin-bottom: 4px; }
+
+.contact-sub {
+  font-size: 13.5px;
+  color: var(--muted);
+  margin: 0 0 14px;
+}
+
+.contact-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 480px;
+}
+
+.contact-row {
+  display: flex;
+  gap: 10px;
+}
+
+.contact-form input,
+.contact-form textarea {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 14px;
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  flex: 1;
+  min-width: 0;
+}
+
+.contact-form textarea { resize: vertical; }
+
+.contact-form input:focus,
+.contact-form textarea:focus {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+.contact-form .cta {
+  align-self: flex-start;
+  border: none;
+  cursor: pointer;
+  font-family: 'Archivo', system-ui, sans-serif;
+}
+
+.contact-form .cta:disabled { opacity: .6; cursor: default; }
+
+.contact-thanks {
+  font-size: 14px;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* Honeypot — hidden from real visitors, left in the tab/DOM flow so
+   basic bots that fill every field still trip it. */
+.hp-field {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
 /* Footer (dark band) */
 .footer {
   font-family: 'Archivo', system-ui, sans-serif;
@@ -399,7 +468,14 @@ a:hover { color: var(--brand-hover); }
   flex-shrink: 0;
 }
 
-.brand-name { font-size: 16px; font-weight: 800; color: var(--on-dark); }
+.brand-name {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--on-dark);
+  text-decoration: none;
+  display: inline-block;
+}
+.brand-name:hover { color: var(--on-dark); }
 .brand-name .accent-dot { color: var(--brand); }
 
 .brand-tag {
@@ -510,6 +586,8 @@ a:hover { color: var(--brand-hover); }
     box-shadow: none;
     border-radius: 0;
   }
+  /* A live form doesn't work on paper — the footer CTA is enough there. */
+  .contact-section { display: none; }
 }
 
 /* Small screens: the .sheet is authored at letter-page width for
