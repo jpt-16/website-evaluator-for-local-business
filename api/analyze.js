@@ -14,7 +14,12 @@ const UA = 'Mozilla/5.0 (compatible; JTBuildsCo-WebsiteHealthReport/1.0)';
 const FETCH_TIMEOUT_MS = 8000;
 const PAGESPEED_TIMEOUT_MS = 15000;
 
-const SOCIAL_RE = /(facebook\.com|instagram\.com|twitter\.com|x\.com\/|linkedin\.com|tiktok\.com|youtube\.com|yelp\.com)/i;
+// Anchored on the hostname itself (protocol + optional "www." immediately
+// before the platform domain) rather than a bare substring — a substring
+// match on "x.com" alone also matches inside "netflix.com"/"fedex.com",
+// and the previous fix for that (requiring a trailing slash) missed a
+// bare "https://x.com" link with nothing after it. This fixes both.
+const SOCIAL_RE = /(?:https?:)?\/\/(?:www\.)?(facebook\.com|instagram\.com|(?:twitter|x)\.com|linkedin\.com|tiktok\.com|youtube\.com|pinterest\.com|threads\.net|wa\.me|nextdoor\.com|snapchat\.com|yelp\.com)/i;
 const TEL_LINK_RE = /href=["']tel:/i;
 const PHONE_TEXT_RE = /\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}/;
 const COPYRIGHT_YEAR_RE = /(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–—]\s*)?(\d{4})/gi;
