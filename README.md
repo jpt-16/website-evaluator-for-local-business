@@ -119,6 +119,16 @@ business name and, if an address is included, an actual town/state — shown
 in the header as "domain.com · Millbrook, NY" instead of just the domain
 alone.
 
+### Shareable report links
+
+After a live check completes, `index.html` gets a "Copy Link" button next
+to the grade circle. It base64url-encodes the entire result into the URL
+fragment (`#r=...`) — no backend or database — so the link can be pasted
+into a text or email and reopening it re-renders that exact snapshot
+instead of re-running a fresh check (which could come back differently if
+the site changed in between). Fragments never get sent to the server, so
+this costs nothing server-side and doesn't touch the rate limit or cache.
+
 ### "What To Fix First"
 
 Below the checklist, `js/report.js` ranks whatever came back `bad` or

@@ -149,6 +149,8 @@
 
     document.getElementById('businessName').textContent = data.businessName || 'Greenline Landscaping';
     document.getElementById('town').textContent = data.town || 'Millbrook, NY';
+    var locationSuffix = document.getElementById('locationSuffix');
+    if (locationSuffix) locationSuffix.textContent = data.location ? ' · ' + data.location : '';
     document.getElementById('preparedDate').textContent = data.preparedDate || 'August 6, 2026';
 
     var score = data.overallScore != null ? data.overallScore : 54;
@@ -336,6 +338,45 @@
     });
   }
 
+  // --- Shareable report links (index.html only) ---------------------------
+  // No backend involved — the whole result snapshot is base64url-encoded
+  // into the URL fragment, so reopening the link re-renders the exact
+  // report rather than re-running a fresh (and possibly different) check.
+  function encodeReportData(data) {
+    var json = JSON.stringify(data);
+    var b64 = btoa(unescape(encodeURIComponent(json)));
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function decodeReportData(encoded) {
+    try {
+      var b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      var json = decodeURIComponent(escape(atob(b64)));
+      return JSON.parse(json);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function updateShareLink(data) {
+    var url = location.origin + location.pathname + '#r=' + encodeReportData(data);
+    history.replaceState(null, '', url);
+    return url;
+  }
+
+  function initShareButton() {
+    var btn = document.getElementById('shareBtn');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      navigator.clipboard.writeText(location.href).then(function () {
+        var original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(function () { btn.textContent = original; }, 1800);
+      });
+    });
+  }
+
   // --- Interactive domain checker (index.html) ---------------------------
   function normalizeDomainInput(raw) {
     var v = (raw || '').trim();
@@ -352,6 +393,16 @@
     var btn = document.getElementById('checkBtn');
     var statusMsg = document.getElementById('statusMsg');
     var report = document.getElementById('report');
+
+    // Reopen a shared link (#r=...) with the exact snapshot it captured,
+    // instead of showing the empty checker state.
+    if (location.hash.indexOf('#r=') === 0) {
+      var shared = decodeReportData(location.hash.slice(3));
+      if (shared) {
+        render(shared);
+        report.hidden = false;
+      }
+    }
 
     function setStatus(text, isError) {
       if (!text) {
@@ -383,6 +434,7 @@
           }
           setStatus(null);
           render(result);
+          updateShareLink(result);
           report.hidden = false;
           report.scrollIntoView({ behavior: 'smooth', block: 'start' });
         })
@@ -403,5 +455,6 @@
     // index.html has no reportData — it's the live checker instead.
     initChecker();
     initContactForm();
+    initShareButton();
   });
 })();
