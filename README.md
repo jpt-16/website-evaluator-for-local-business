@@ -129,6 +129,16 @@ instead of re-running a fresh check (which could come back differently if
 the site changed in between). Fragments never get sent to the server, so
 this costs nothing server-side and doesn't touch the rate limit or cache.
 
+### PDF export
+
+The "Download PDF" button (next to "Copy Link" on the checker, or on its
+own on curated `/reports/<slug>` pages) just calls `window.print()` —
+there's no PDF-generation library, it rides on the print stylesheet that
+already existed for physically printing a report. That stylesheet also now
+hides the checker's search bar, status messages, and the share/PDF buttons
+themselves when printing, so only the report card exports, matching what a
+curated page already looked like on paper.
+
 ### "What To Fix First"
 
 Below the checklist, `js/report.js` ranks whatever came back `bad` or

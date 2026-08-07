@@ -377,6 +377,15 @@
     });
   }
 
+  // Present on both index.html and report-template.html — uses the
+  // existing print stylesheet (letter-sized, checker chrome hidden) via
+  // the browser's own "Save as PDF" print destination, no library needed.
+  function initPdfButton() {
+    var btn = document.getElementById('pdfBtn');
+    if (!btn) return;
+    btn.addEventListener('click', function () { window.print(); });
+  }
+
   // --- Interactive domain checker (index.html) ---------------------------
   function normalizeDomainInput(raw) {
     var v = (raw || '').trim();
@@ -456,5 +465,6 @@
     initChecker();
     initContactForm();
     initShareButton();
+    initPdfButton();
   });
 })();

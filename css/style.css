@@ -143,6 +143,12 @@ a:hover { color: var(--brand-hover); }
   margin-top: 8px;
 }
 
+.grade-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 .share-btn {
   font-family: 'Archivo', system-ui, sans-serif;
   font-size: 9.5px;
@@ -152,8 +158,8 @@ a:hover { color: var(--brand-hover); }
   border: 1px solid oklch(97% 0.01 290 / .25);
   border-radius: 20px;
   padding: 4px 10px;
-  margin-top: 8px;
   cursor: pointer;
+  white-space: nowrap;
 }
 .share-btn:hover { color: var(--on-dark); border-color: oklch(97% 0.01 290 / .4); }
 
@@ -605,6 +611,11 @@ a:hover { color: var(--brand-hover); }
   }
   /* A live form doesn't work on paper — the footer CTA is enough there. */
   .contact-section { display: none; }
+  /* Only the report card itself should print/export — not the checker's
+     search UI, status messages, or the share/PDF buttons (meaningless
+     once it's already on paper). */
+  .tool-intro, .status-msg, .grade-actions { display: none; }
+  .tool-wrap { padding: 0; }
 }
 
 /* Small screens: the .sheet is authored at letter-page width for
