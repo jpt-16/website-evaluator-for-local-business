@@ -15,13 +15,17 @@
 // deployment), this falls back to a plain fetch so the tool degrades
 // instead of breaking outright.
 
-const puppeteer = require('puppeteer-core');
-// @sparticuz/chromium is an ES Module — Vercel's runtime doesn't support
-// require()-ing it directly (throws ERR_REQUIRE_ESM), so it's loaded via
-// dynamic import() instead, and lazily (inside renderWithBrowser, not at
-// module load time) so a failure here still hits the plain-fetch
-// fallback rather than crashing every request before the handler even
-// runs.
+// Both puppeteer-core and @sparticuz/chromium are ES Modules — Vercel's
+// runtime doesn't support require()-ing them directly (throws
+// ERR_REQUIRE_ESM), so both are loaded via dynamic import() instead, and
+// lazily (inside renderWithBrowser, not at module load time) so a
+// failure here still hits the plain-fetch fallback rather than crashing
+// every request before the handler even runs.
+let puppeteerPromise = null;
+function loadPuppeteer() {
+  if (!puppeteerPromise) puppeteerPromise = import('puppeteer-core').then((m) => m.default);
+  return puppeteerPromise;
+}
 let chromiumPromise = null;
 function loadChromium() {
   if (!chromiumPromise) chromiumPromise = import('@sparticuz/chromium').then((m) => m.default);
@@ -112,7 +116,7 @@ function checkRateLimit(ip) {
 // Renders the page in a real headless browser so client-side-injected
 // content (social widgets, etc.) is visible, not just the initial HTML.
 async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
-  const chromium = await loadChromium();
+  const [puppeteer, chromium] = await Promise.all([loadPuppeteer(), loadChromium()]);
   const browser = await puppeteer.launch({
     args: chromium.args,
     executablePath: await chromium.executablePath(),
