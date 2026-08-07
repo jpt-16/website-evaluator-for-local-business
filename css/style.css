@@ -285,7 +285,11 @@ a:hover { color: var(--brand-hover); }
   margin: 0;
 }
 
-.cost-row em { color: var(--ink); }
+.cost-row--clear {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
 
 /* What To Fix First */
 .fix-list {

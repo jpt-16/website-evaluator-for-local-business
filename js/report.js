@@ -13,11 +13,14 @@
     social: 'socialStatus',
   };
 
-  // "What To Fix First" — business-priority order (not the checklist's
-  // display order) and the copy for each. tipWarn falls back to tipBad
-  // (and vice versa) since curated reports can set either status even
-  // where the live checker only ever produces one of the two.
-  var FIX_ORDER = ['hasWebsite', 'ssl', 'mobile', 'speed', 'social'];
+  // Shared business-priority order for both "What This Is Costing You"
+  // and "What To Fix First" — same underlying issues, different framing
+  // (impact vs. action). Not the checklist's display order.
+  var ISSUE_ORDER = ['hasWebsite', 'ssl', 'mobile', 'speed', 'social'];
+
+  // tipWarn falls back to tipBad (and vice versa) since curated reports
+  // can set either status even where the live checker only ever produces
+  // one of the two.
   var FIX_META = {
     hasWebsite: {
       label: 'Get your site working',
@@ -42,6 +45,45 @@
       tipBad: "Make it easy for visitors to find you on social — right now there's no link from your site.",
     },
   };
+
+  var IMPACT_META = {
+    hasWebsite: {
+      tipBad: "Visitors hit a dead end and just move on to the next search result — with no way to reach you at all.",
+    },
+    ssl: {
+      tipBad: 'A "Not Secure" warning sends visitors straight to a competitor\'s site — no message, no phone call.',
+    },
+    mobile: {
+      tipBad: 'Most people find local businesses by searching on their phone. If the site is hard to use there, they call the next name on the list.',
+      tipWarn: "Some visitors on their phone are seeing a layout that doesn't quite work — a quiet leak, not a dramatic one.",
+    },
+    speed: {
+      tipBad: 'Every extra second of load time pushes more visitors to leave before they even see what you offer.',
+      tipWarn: 'A slow-loading page loses a share of visitors before it finishes — often without you ever knowing.',
+    },
+    social: {
+      tipBad: "Visitors who'd follow or message you on social have no way to find those profiles from the site.",
+    },
+  };
+
+  // Ranks whatever's bad/warning (bad first) into up to `limit` issues,
+  // shared by the cost list and the fix list so they tell a consistent
+  // story about the same underlying findings.
+  function rankIssues(data, limit) {
+    var bad = [];
+    var warn = [];
+    ISSUE_ORDER.forEach(function (key) {
+      var status = data[CATEGORY_STATUS_KEY[key]];
+      if (status === 'bad') bad.push(key);
+      else if (status === 'warning') warn.push(key);
+    });
+    return bad.concat(warn).slice(0, limit);
+  }
+
+  function tipFor(meta, data, key) {
+    var status = data[CATEGORY_STATUS_KEY[key]];
+    return status === 'bad' ? (meta.tipBad || meta.tipWarn) : (meta.tipWarn || meta.tipBad);
+  }
 
   function statusStyle(status) {
     return STATUS_STYLE[status] || STATUS_STYLE.warning;
@@ -97,22 +139,50 @@
       }
     });
 
+    buildCostList(data);
     buildFixList(data);
+  }
+
+  function buildCostList(data) {
+    var list = document.getElementById('costList');
+    if (!list) return;
+
+    var ranked = rankIssues(data, 3);
+    list.innerHTML = '';
+
+    if (!ranked.length) {
+      var clear = document.createElement('div');
+      clear.className = 'cost-row cost-row--clear';
+      clear.textContent = "Nothing here is actively costing you customers right now — the fundamentals are solid. A stronger site is about growth from here, not damage control.";
+      list.appendChild(clear);
+      return;
+    }
+
+    ranked.forEach(function (key, i) {
+      var meta = IMPACT_META[key];
+      if (!meta) return;
+
+      var row = document.createElement('div');
+      row.className = 'cost-row';
+
+      var num = document.createElement('span');
+      num.className = 'cost-num';
+      num.textContent = i + 1 < 10 ? '0' + (i + 1) : String(i + 1);
+
+      var p = document.createElement('p');
+      p.textContent = tipFor(meta, data, key);
+
+      row.appendChild(num);
+      row.appendChild(p);
+      list.appendChild(row);
+    });
   }
 
   function buildFixList(data) {
     var list = document.getElementById('fixList');
     if (!list) return;
 
-    var bad = [];
-    var warn = [];
-    FIX_ORDER.forEach(function (key) {
-      var status = data[CATEGORY_STATUS_KEY[key]];
-      if (status === 'bad') bad.push(key);
-      else if (status === 'warning') warn.push(key);
-    });
-    var ranked = bad.concat(warn).slice(0, 3);
-
+    var ranked = rankIssues(data, 3);
     list.innerHTML = '';
 
     if (!ranked.length) {
@@ -126,8 +196,6 @@
     ranked.forEach(function (key, i) {
       var meta = FIX_META[key];
       if (!meta) return;
-      var status = data[CATEGORY_STATUS_KEY[key]];
-      var tip = status === 'bad' ? (meta.tipBad || meta.tipWarn) : (meta.tipWarn || meta.tipBad);
 
       var li = document.createElement('li');
       li.className = 'fix-row';
@@ -141,7 +209,7 @@
       var strong = document.createElement('strong');
       strong.textContent = meta.label;
       text.appendChild(strong);
-      text.appendChild(document.createTextNode(' — ' + tip));
+      text.appendChild(document.createTextNode(' — ' + tipFor(meta, data, key)));
 
       li.appendChild(num);
       li.appendChild(text);
