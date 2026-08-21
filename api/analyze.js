@@ -36,38 +36,6 @@ const UA = 'Mozilla/5.0 (compatible; JTBuildsCo-WebsiteHealthReport/1.0)';
 const FETCH_TIMEOUT_MS = 8000;
 const BROWSER_NAV_TIMEOUT_MS = 12000;
 const PAGESPEED_TIMEOUT_MS = 15000;
-const VISION_TIMEOUT_MS = 20000;
-// Overridable via env var, but a small/fast vision-capable model is the
-// right default here — this is one bounded per-site judgment call, not a
-// conversation, and it runs synchronously inside the request.
-const VISION_MODEL = process.env.DESIGN_VISION_MODEL || 'claude-haiku-4-5-20251001';
-
-// Forces a structured, parseable verdict out of the vision call instead of
-// free text — the model can't reply with anything except this shape.
-const VISION_DESIGN_TOOL = {
-  name: 'report_visual_design',
-  description: 'Report a structured verdict on the visual design quality of a website homepage screenshot.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      layoutConsistency: { type: 'string', enum: ['good', 'warning', 'bad'] },
-      whitespaceAndSpacing: { type: 'string', enum: ['good', 'warning', 'bad'] },
-      visualHierarchy: { type: 'string', enum: ['good', 'warning', 'bad'] },
-      imageQuality: { type: 'string', enum: ['good', 'warning', 'bad'] },
-      colorCohesion: { type: 'string', enum: ['good', 'warning', 'bad'] },
-      status: { type: 'string', enum: ['good', 'warning', 'bad'], description: 'Overall verdict weighing all the sub-scores above — the one actually used.' },
-      description: {
-        type: 'string',
-        description: 'One or two plain-English sentences written directly to the site owner (start with "Your site..."), explaining the overall verdict in specific, concrete terms — not generic praise or generic criticism.',
-      },
-    },
-    required: ['layoutConsistency', 'whitespaceAndSpacing', 'visualHierarchy', 'imageQuality', 'colorCohesion', 'status', 'description'],
-  },
-};
-
-const VISION_DESIGN_PROMPT =
-  "This is a screenshot of a local service business's website homepage. It already passed a basic technical check (custom fonts, real photography, modern layout code) — your job is to judge whether it actually LOOKS good to a prospective customer, which is a different question. A site can use all the right technology and still look cluttered, cramped, dated, or amateurish.\n\n" +
-  'Assess: layout consistency, whitespace/spacing, visual hierarchy (is it obvious what matters most at a glance?), image quality and cropping, and color palette cohesion. Weigh all of that into one overall verdict — reserve "good" for a site that would genuinely look professional and trustworthy to a visitor, not just technically competent. Call report_visual_design with your verdict.';
 
 // Best-effort only — these live in the function instance's memory, so
 // they reset on cold start and aren't shared across concurrent instances.
@@ -106,102 +74,6 @@ function joinList(items) {
   if (items.length <= 1) return items[0] || '';
   if (items.length === 2) return items[0] + ' and ' + items[1];
   return items.slice(0, -1).join(', ') + ', and ' + items[items.length - 1];
-}
-
-// The free, deterministic baseline for every request: concrete DOM/CSS
-// signals, not a taste judgment. Catches "objectively hasn't been rebuilt"
-// (default fonts, no photos, no modern layout, literal deprecated tags)
-// but not "technically fine, still looks cluttered/amateurish" — that's
-// what the vision check (below) exists to catch, layered on top of a
-// 'good' verdict from this function specifically.
-function heuristicDesignVerdict(html, designSignals) {
-  if (!designSignals) {
-    return {
-      status: 'unknown',
-      desc: "We couldn't fully render your site to check its visual design on the last check — try checking again in a bit.",
-    };
-  }
-  const hasDeprecatedMarkup = DEPRECATED_MARKUP_RE.test(html);
-  const positives = [
-    designSignals.usesCustomFont,
-    designSignals.usesModernLayout,
-    designSignals.realImages >= 2,
-  ].filter(Boolean).length;
-
-  if (hasDeprecatedMarkup) {
-    return {
-      status: 'bad',
-      desc: "Your site still uses HTML from the early 2000s (like <font> or <center> tags) — a strong signal to visitors, and to Google, that it hasn't been rebuilt in a very long time.",
-    };
-  }
-  if (positives === 3) {
-    return {
-      status: 'good',
-      desc: 'Your site uses custom fonts, real photography, and a modern layout — it reads as current, not dated.',
-    };
-  }
-  if (positives >= 1) {
-    const missing = [];
-    if (!designSignals.usesCustomFont) missing.push('custom fonts');
-    if (!designSignals.usesModernLayout) missing.push('a modern layout');
-    if (designSignals.realImages < 2) missing.push('real photography');
-    return {
-      status: 'warning',
-      desc: 'Your site is missing ' + joinList(missing) + " — small things individually, but often exactly what makes a site feel dated at first glance.",
-    };
-  }
-  return {
-    status: 'bad',
-    desc: "Your site relies on default system fonts, has no real photography, and uses an old-school layout — together, that's what makes a site feel outdated the moment someone lands on it.",
-  };
-}
-
-// Only called when the heuristic above already says 'good' — this exists
-// specifically to catch the false positive it can't: a site that's
-// technically current (custom font, real photos, modern layout) but still
-// looks cluttered, cramped, or amateurish. Returns null (keep the
-// heuristic's 'good' verdict as-is) on any failure — missing API key,
-// timeout, malformed response — rather than blocking or guessing.
-async function evaluateVisualDesignWithVision(screenshotBase64) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return null;
-  try {
-    const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: VISION_MODEL,
-        max_tokens: 500,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: screenshotBase64 } },
-            { type: 'text', text: VISION_DESIGN_PROMPT },
-          ],
-        }],
-        tools: [VISION_DESIGN_TOOL],
-        tool_choice: { type: 'tool', name: 'report_visual_design' },
-      }),
-    }, VISION_TIMEOUT_MS);
-
-    if (!res.ok) {
-      console.error('[analyze] vision design check http', res.status, (await res.text().catch(() => '')).slice(0, 400));
-      return null;
-    }
-    const json = await res.json();
-    const toolUse = (json.content || []).find((block) => block.type === 'tool_use' && block.name === 'report_visual_design');
-    const input = toolUse && toolUse.input;
-    if (!input || !input.status || !input.description) return null;
-    if (!['good', 'warning', 'bad'].includes(input.status)) return null;
-    return { status: input.status, desc: String(input.description).slice(0, 500) };
-  } catch (e) {
-    console.error('[analyze] vision design check failed —', e && e.message ? e.message : e);
-    return null;
-  }
 }
 
 function normalizeDomain(raw) {
@@ -271,11 +143,6 @@ async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
   try {
     const page = await browser.newPage();
     await page.setUserAgent(ua);
-    // Fixed desktop size so the visual-design screenshot (below) shows a
-    // consistent, representative view rather than whatever puppeteer's
-    // undocumented default happens to be — most local-business sites are
-    // still designed desktop-first even when responsive.
-    await page.setViewport({ width: 1280, height: 800 });
     const t0 = Date.now();
     let response, usedUrl, sslOk;
     try {
@@ -317,21 +184,6 @@ async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
         return null;
       }
     });
-
-    // Only screenshot (and later, only spend a vision-model call) on sites
-    // the free heuristic already thinks look "good" — that's specifically
-    // where it can be wrong (technically current, still looks bad), and
-    // bounding it to that subset keeps the added cost/latency contained
-    // instead of hitting every single request.
-    let designScreenshot = null;
-    if (heuristicDesignVerdict(html, designSignals).status === 'good') {
-      try {
-        designScreenshot = await page.screenshot({ type: 'jpeg', quality: 70, encoding: 'base64' });
-      } catch (e) {
-        designScreenshot = null; // non-fatal — vision check just gets skipped below
-      }
-    }
-
     return {
       statusCode: response ? response.status() : 0,
       usedUrl,
@@ -339,7 +191,6 @@ async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
       html,
       elapsedMs: Date.now() - t0,
       designSignals,
-      designScreenshot,
     };
   } finally {
     await browser.close().catch(() => {});
@@ -355,12 +206,12 @@ async function fetchPlain(httpsUrl, httpUrl, ua) {
     const t0 = Date.now();
     const response = await fetchWithTimeout(httpsUrl, fetchOpts, FETCH_TIMEOUT_MS);
     const html = await response.text();
-    return { statusCode: response.status, usedUrl: httpsUrl, sslOk: true, html, elapsedMs: Date.now() - t0, designSignals: null, designScreenshot: null };
+    return { statusCode: response.status, usedUrl: httpsUrl, sslOk: true, html, elapsedMs: Date.now() - t0, designSignals: null };
   } catch (e) {
     const t0 = Date.now();
     const response = await fetchWithTimeout(httpUrl, fetchOpts, FETCH_TIMEOUT_MS);
     const html = await response.text();
-    return { statusCode: response.status, usedUrl: httpUrl, sslOk: false, html, elapsedMs: Date.now() - t0, designSignals: null, designScreenshot: null };
+    return { statusCode: response.status, usedUrl: httpUrl, sslOk: false, html, elapsedMs: Date.now() - t0, designSignals: null };
   }
 }
 
@@ -429,7 +280,7 @@ module.exports = async (req, res) => {
   const httpsUrl = 'https://' + domain;
   const httpUrl = 'http://' + domain;
 
-  let statusCode, usedUrl, sslOk, html, elapsedMs, designSignals, designScreenshot;
+  let statusCode, usedUrl, sslOk, html, elapsedMs, designSignals;
   try {
     const rendered = await renderWithBrowser(httpsUrl, httpUrl, UA, BROWSER_NAV_TIMEOUT_MS);
     statusCode = rendered.statusCode;
@@ -438,7 +289,6 @@ module.exports = async (req, res) => {
     html = rendered.html;
     elapsedMs = rendered.elapsedMs;
     designSignals = rendered.designSignals;
-    designScreenshot = rendered.designScreenshot;
   } catch (browserErr) {
     console.error('[analyze] headless render failed for', domain, '— falling back to plain fetch —', browserErr && browserErr.message);
     try {
@@ -449,7 +299,6 @@ module.exports = async (req, res) => {
       html = plain.html;
       elapsedMs = plain.elapsedMs;
       designSignals = plain.designSignals;
-      designScreenshot = plain.designScreenshot;
     } catch (fetchErr) {
       res.status(200).json({
         ok: false,
@@ -606,21 +455,42 @@ module.exports = async (req, res) => {
   }
 
   // --- Visual design (modern vs. dated look) ---------------------------
-  // Two layers: a free, deterministic heuristic that runs on every
-  // request (concrete DOM/CSS signals — can't judge taste, doesn't try),
-  // then — only when that heuristic already says 'good' — a real vision
-  // model looks at an actual screenshot and can override the verdict. That
-  // second layer is what catches a site that's technically current but
-  // still looks cluttered or amateurish, which the heuristic alone can't.
-  let { status: designStatus, desc: designDesc } = heuristicDesignVerdict(html, designSignals);
-  if (designStatus === 'good' && designScreenshot) {
-    const visionVerdict = await evaluateVisualDesignWithVision(designScreenshot);
-    if (visionVerdict) {
-      designStatus = visionVerdict.status;
-      designDesc = visionVerdict.desc;
+  // Can't judge taste, but "looks old and boring" tends to have concrete,
+  // checkable fingerprints: default system fonts only, no real photography,
+  // an old-school (non-flex/grid) layout, or literal HTML4-era tags like
+  // <font>/<center>/<marquee>. This catches those, honestly, rather than
+  // guessing at aesthetics. Only available when the headless browser
+  // actually rendered the page (not the plain-fetch fallback), since it
+  // needs a live DOM to check loaded fonts/images/computed layout.
+  let designStatus, designDesc;
+  if (designSignals) {
+    const hasDeprecatedMarkup = DEPRECATED_MARKUP_RE.test(html);
+    const positives = [
+      designSignals.usesCustomFont,
+      designSignals.usesModernLayout,
+      designSignals.realImages >= 2,
+    ].filter(Boolean).length;
+
+    if (hasDeprecatedMarkup) {
+      designStatus = 'bad';
+      designDesc = "Your site still uses HTML from the early 2000s (like <font> or <center> tags) — a strong signal to visitors, and to Google, that it hasn't been rebuilt in a very long time.";
+    } else if (positives === 3) {
+      designStatus = 'good';
+      designDesc = 'Your site uses custom fonts, real photography, and a modern layout — it reads as current, not dated.';
+    } else if (positives >= 1) {
+      designStatus = 'warning';
+      const missing = [];
+      if (!designSignals.usesCustomFont) missing.push('custom fonts');
+      if (!designSignals.usesModernLayout) missing.push('a modern layout');
+      if (designSignals.realImages < 2) missing.push('real photography');
+      designDesc = 'Your site is missing ' + joinList(missing) + " — small things individually, but often exactly what makes a site feel dated at first glance.";
+    } else {
+      designStatus = 'bad';
+      designDesc = "Your site relies on default system fonts, has no real photography, and uses an old-school layout — together, that's what makes a site feel outdated the moment someone lands on it.";
     }
-    // else: vision call failed/unset ANTHROPIC_API_KEY — keep the
-    // heuristic's 'good' verdict rather than blocking on it.
+  } else {
+    designStatus = 'unknown';
+    designDesc = "We couldn't fully render your site to check its visual design on the last check — try checking again in a bit.";
   }
 
   // --- Contact info visibility ------------------------------------------
