@@ -30,12 +30,13 @@
     seo: 'seoStatus',
     freshness: 'freshnessStatus',
     contact: 'contactStatus',
+    design: 'designStatus',
   };
 
   // Shared business-priority order for both "What This Is Costing You"
   // and "What To Fix First" — same underlying issues, different framing
   // (impact vs. action). Not the checklist's display order.
-  var ISSUE_ORDER = ['hasWebsite', 'ssl', 'mobile', 'contact', 'speed', 'accessibility', 'seo', 'freshness', 'social'];
+  var ISSUE_ORDER = ['hasWebsite', 'ssl', 'mobile', 'contact', 'design', 'speed', 'accessibility', 'seo', 'freshness', 'social'];
 
   // tipWarn falls back to tipBad (and vice versa) since curated reports
   // can set either status even where the live checker only ever produces
@@ -83,6 +84,11 @@
       label: 'Link your social profiles',
       tipBad: "Make it easy for visitors to find you on social — right now there's no link from your site.",
     },
+    design: {
+      label: 'Modernize the look',
+      tipBad: "The site reads as old and generic at a glance — that's often enough for a visitor to bounce before reading a word.",
+      tipWarn: 'A few dated touches are holding the design back from feeling current.',
+    },
   };
 
   var IMPACT_META = {
@@ -118,6 +124,10 @@
     },
     social: {
       tipBad: "Visitors who'd follow or message you on social have no way to find those profiles from the site.",
+    },
+    design: {
+      tipBad: "A dated-looking site quietly signals 'this business hasn't kept up' — even if the work itself is great.",
+      tipWarn: "It's not glaring, but a slightly dated look is a small trust tax on every visitor who lands on it.",
     },
   };
 

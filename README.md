@@ -28,9 +28,22 @@ third-party site directly — CORS blocks it — so this has to happen server-si
 | SSL / Security | Does HTTPS load without error? |
 | Accessibility | PageSpeed Insights' accessibility score — same API call as Page Speed, just reading another field from the same response |
 | SEO Basics | PageSpeed Insights' SEO score (meta tags, crawlability, etc.) — likewise free from the same call |
+| Visual Design | Does the rendered page load a custom web font, real photography, and a modern (flex/grid) layout — or literal deprecated tags like `<font>`/`<center>`/`<marquee>`? |
 | Site Freshness | Is there a copyright year in the footer, and how stale is it? (2+ years old = failing) |
 | Contact Info | Is there a `tel:` link (tap-to-call), a plain phone number in the text, or nothing at all? |
 | Social Media Presence | Does the page link to Facebook, Instagram, X/Twitter, LinkedIn, TikTok, YouTube, or Yelp? |
+
+Visual Design can't judge taste — no check can — but "looks old and
+boring" tends to have concrete, checkable fingerprints: sites stuck on
+default system fonts, no real photography, an old-school layout, or
+actual HTML4-era tags (`<font>`, `<center>`, `<marquee>`, `<blink>`) that
+have been deprecated for 20+ years. Scored on how many of the first three
+signals are present, with any deprecated tag forcing a `bad` outright
+regardless of the others — that's too strong a tell to average away. It
+needs the live rendered DOM (fonts loaded, images decoded, computed
+layout), so like Accessibility/SEO it falls back to `unknown` rather than
+a guess if the headless browser itself failed and the plain-fetch
+fallback kicked in.
 
 Accessibility and SEO piggyback on the same PageSpeed Insights call as Page
 Speed — Lighthouse computes all of them together, so there's no extra
@@ -49,11 +62,10 @@ actually know.
 Google Reviews isn't in the checklist at all — there's no reliable free way
 to verify that from a domain alone, and a wrong guess (or an always-neutral
 "not checked" row) wasn't worth the space. "Best Practices" (Lighthouse's
-4th default category) is deliberately not surfaced either, to keep the
-checklist from growing past 9 rows — mostly overlaps with the SSL check
-anyway.
+4th default category) is deliberately not surfaced either — mostly
+overlaps with the SSL check anyway.
 
-The overall score is the average of these 9 categories. The checklist
+The overall score is the average of these 10 categories. The checklist
 descriptions are generated per-domain based on what was actually found —
 they're no longer static placeholder text on this page (the curated
 `/reports/<slug>` pages still use static copy, since those are
@@ -80,13 +92,17 @@ HTML. This matters because a plain fetch only ever sees what the server
 sends on the initial response — any content injected by client-side
 JavaScript (very common for footer social icons on Wix/Squarespace/etc.
 site builders) would otherwise be invisible to every check that scans the
-HTML, most notably Social Media Presence.
+HTML, most notably Social Media Presence. Visual Design depends on it even
+more directly — it reads loaded web fonts, decoded image dimensions, and
+computed layout straight off the live DOM, none of which exist from a
+plain fetch of the raw HTML.
 
 If the browser itself fails to launch for any reason (a bundle or runtime
 issue on a given deployment), it falls back to a plain fetch automatically
 — logged as `[analyze] headless render failed for ... — falling back to
 plain fetch`. The tool still works in that degraded mode rather than
-breaking outright, just blind to JS-injected content again.
+breaking outright, just blind to JS-injected content (and Visual Design)
+again.
 
 This adds real latency (launching a browser + navigating vs. one fetch),
 which is why `vercel.json` gives `api/analyze.js` a 60s timeout and 1536MB

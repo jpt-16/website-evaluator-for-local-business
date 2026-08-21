@@ -58,12 +58,22 @@ const TEL_LINK_RE = /href=["']tel:/i;
 // unspaced ones like "5551234567" still match, not just "555-123-4567".
 const PHONE_TEXT_RE = /(?:\+?1[\s.\-–—]?)?\(?\d{3}\)?[\s.\-–—]?\d{3}[\s.\-–—]?\d{4}\b/;
 const COPYRIGHT_YEAR_RE = /(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–—]\s*)?(\d{4})/gi;
+// Literal HTML4-era tags — these have been deprecated for 20+ years, so
+// their presence is a very reliable signal a site hasn't been rebuilt
+// since, not a guess.
+const DEPRECATED_MARKUP_RE = /<font[\s>]|<center[\s>]|<marquee[\s>]|<blink[\s>]/i;
 const JSONLD_RE = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
 const BUSINESS_TYPE_RE = /organization|localbusiness|business|store|shop|restaurant|professionalservice/i;
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'", nbsp: ' ' };
 
 function decodeEntities(str) {
   return str.replace(/&(#39|amp|lt|gt|quot|apos|nbsp);/g, (_, k) => ENTITIES[k]);
+}
+
+function joinList(items) {
+  if (items.length <= 1) return items[0] || '';
+  if (items.length === 2) return items[0] + ' and ' + items[1];
+  return items.slice(0, -1).join(', ') + ', and ' + items[items.length - 1];
 }
 
 function normalizeDomain(raw) {
@@ -149,12 +159,38 @@ async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
     // every last network connection to go idle (some pages never do).
     await new Promise((resolve) => setTimeout(resolve, 1500));
     const html = await page.content();
+    // Signals for the "visual design" check — only obtainable from a live,
+    // rendered DOM (not a plain-fetch fallback), so this is null there.
+    const designSignals = await page.evaluate(() => {
+      try {
+        var realImages = 0;
+        var imgs = document.images || [];
+        for (var i = 0; i < imgs.length; i++) {
+          if (imgs[i].naturalWidth >= 100 && imgs[i].naturalHeight >= 100) realImages++;
+        }
+        var usesCustomFont = !!(document.fonts && document.fonts.size > 0);
+        var usesModernLayout = false;
+        var all = document.querySelectorAll('body, body *');
+        var cap = Math.min(all.length, 400);
+        for (var j = 0; j < cap; j++) {
+          var d = getComputedStyle(all[j]).display;
+          if (d === 'flex' || d === 'inline-flex' || d === 'grid' || d === 'inline-grid') {
+            usesModernLayout = true;
+            break;
+          }
+        }
+        return { realImages: realImages, usesCustomFont: usesCustomFont, usesModernLayout: usesModernLayout };
+      } catch (e) {
+        return null;
+      }
+    });
     return {
       statusCode: response ? response.status() : 0,
       usedUrl,
       sslOk,
       html,
       elapsedMs: Date.now() - t0,
+      designSignals,
     };
   } finally {
     await browser.close().catch(() => {});
@@ -170,12 +206,12 @@ async function fetchPlain(httpsUrl, httpUrl, ua) {
     const t0 = Date.now();
     const response = await fetchWithTimeout(httpsUrl, fetchOpts, FETCH_TIMEOUT_MS);
     const html = await response.text();
-    return { statusCode: response.status, usedUrl: httpsUrl, sslOk: true, html, elapsedMs: Date.now() - t0 };
+    return { statusCode: response.status, usedUrl: httpsUrl, sslOk: true, html, elapsedMs: Date.now() - t0, designSignals: null };
   } catch (e) {
     const t0 = Date.now();
     const response = await fetchWithTimeout(httpUrl, fetchOpts, FETCH_TIMEOUT_MS);
     const html = await response.text();
-    return { statusCode: response.status, usedUrl: httpUrl, sslOk: false, html, elapsedMs: Date.now() - t0 };
+    return { statusCode: response.status, usedUrl: httpUrl, sslOk: false, html, elapsedMs: Date.now() - t0, designSignals: null };
   }
 }
 
@@ -244,7 +280,7 @@ module.exports = async (req, res) => {
   const httpsUrl = 'https://' + domain;
   const httpUrl = 'http://' + domain;
 
-  let statusCode, usedUrl, sslOk, html, elapsedMs;
+  let statusCode, usedUrl, sslOk, html, elapsedMs, designSignals;
   try {
     const rendered = await renderWithBrowser(httpsUrl, httpUrl, UA, BROWSER_NAV_TIMEOUT_MS);
     statusCode = rendered.statusCode;
@@ -252,6 +288,7 @@ module.exports = async (req, res) => {
     sslOk = rendered.sslOk;
     html = rendered.html;
     elapsedMs = rendered.elapsedMs;
+    designSignals = rendered.designSignals;
   } catch (browserErr) {
     console.error('[analyze] headless render failed for', domain, '— falling back to plain fetch —', browserErr && browserErr.message);
     try {
@@ -261,6 +298,7 @@ module.exports = async (req, res) => {
       sslOk = plain.sslOk;
       html = plain.html;
       elapsedMs = plain.elapsedMs;
+      designSignals = plain.designSignals;
     } catch (fetchErr) {
       res.status(200).json({
         ok: false,
@@ -416,6 +454,45 @@ module.exports = async (req, res) => {
     }
   }
 
+  // --- Visual design (modern vs. dated look) ---------------------------
+  // Can't judge taste, but "looks old and boring" tends to have concrete,
+  // checkable fingerprints: default system fonts only, no real photography,
+  // an old-school (non-flex/grid) layout, or literal HTML4-era tags like
+  // <font>/<center>/<marquee>. This catches those, honestly, rather than
+  // guessing at aesthetics. Only available when the headless browser
+  // actually rendered the page (not the plain-fetch fallback), since it
+  // needs a live DOM to check loaded fonts/images/computed layout.
+  let designStatus, designDesc;
+  if (designSignals) {
+    const hasDeprecatedMarkup = DEPRECATED_MARKUP_RE.test(html);
+    const positives = [
+      designSignals.usesCustomFont,
+      designSignals.usesModernLayout,
+      designSignals.realImages >= 2,
+    ].filter(Boolean).length;
+
+    if (hasDeprecatedMarkup) {
+      designStatus = 'bad';
+      designDesc = "Your site still uses HTML from the early 2000s (like <font> or <center> tags) — a strong signal to visitors, and to Google, that it hasn't been rebuilt in a very long time.";
+    } else if (positives === 3) {
+      designStatus = 'good';
+      designDesc = 'Your site uses custom fonts, real photography, and a modern layout — it reads as current, not dated.';
+    } else if (positives >= 1) {
+      designStatus = 'warning';
+      const missing = [];
+      if (!designSignals.usesCustomFont) missing.push('custom fonts');
+      if (!designSignals.usesModernLayout) missing.push('a modern layout');
+      if (designSignals.realImages < 2) missing.push('real photography');
+      designDesc = 'Your site is missing ' + joinList(missing) + " — small things individually, but often exactly what makes a site feel dated at first glance.";
+    } else {
+      designStatus = 'bad';
+      designDesc = "Your site relies on default system fonts, has no real photography, and uses an old-school layout — together, that's what makes a site feel outdated the moment someone lands on it.";
+    }
+  } else {
+    designStatus = 'unknown';
+    designDesc = "We couldn't fully render your site to check its visual design on the last check — try checking again in a bit.";
+  }
+
   // --- Contact info visibility ------------------------------------------
   let contactStatus, contactDesc;
   if (TEL_LINK_RE.test(html)) {
@@ -447,12 +524,12 @@ module.exports = async (req, res) => {
   }
 
   // --- Overall score: average of whichever categories we could actually
-  // verify (usually all 9 — 'unknown' only shows up when PageSpeed itself
-  // failed, and is excluded here rather than counted as a strike against
-  // the site).
+  // verify (usually all 10 — 'unknown' only shows up when PageSpeed or the
+  // headless render itself failed, and is excluded here rather than
+  // counted as a strike against the site).
   const measured = [
     hasWebsiteStatus, sslStatus, mobileStatus, speedStatus, socialStatus,
-    accessibilityStatus, seoStatus, freshnessStatus, contactStatus,
+    accessibilityStatus, seoStatus, freshnessStatus, contactStatus, designStatus,
   ].map(toneScore).filter((score) => score !== null);
   const overallScore = Math.round(
     measured.reduce((sum, score) => sum + score, 0) / measured.length
@@ -474,6 +551,7 @@ module.exports = async (req, res) => {
     seoStatus,
     freshnessStatus,
     contactStatus,
+    designStatus,
     descriptions: {
       hasWebsite: hasWebsiteDesc,
       mobile: mobileDesc,
@@ -484,6 +562,7 @@ module.exports = async (req, res) => {
       seo: seoDesc,
       freshness: freshnessDesc,
       contact: contactDesc,
+      design: designDesc,
     },
   };
 

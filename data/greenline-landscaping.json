@@ -12,5 +12,6 @@
   "seoStatus": "bad",
   "freshnessStatus": "bad",
   "contactStatus": "warning",
-  "socialStatus": "warning"
+  "socialStatus": "warning",
+  "designStatus": "bad"
 }
