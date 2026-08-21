@@ -28,22 +28,51 @@ third-party site directly — CORS blocks it — so this has to happen server-si
 | SSL / Security | Does HTTPS load without error? |
 | Accessibility | PageSpeed Insights' accessibility score — same API call as Page Speed, just reading another field from the same response |
 | SEO Basics | PageSpeed Insights' SEO score (meta tags, crawlability, etc.) — likewise free from the same call |
-| Visual Design | Does the rendered page load a custom web font, real photography, and a modern (flex/grid) layout — or literal deprecated tags like `<font>`/`<center>`/`<marquee>`? |
+| Visual Design | Two layers — see below |
 | Site Freshness | Is there a copyright year in the footer, and how stale is it? (2+ years old = failing) |
 | Contact Info | Is there a `tel:` link (tap-to-call), a plain phone number in the text, or nothing at all? |
 | Social Media Presence | Does the page link to Facebook, Instagram, X/Twitter, LinkedIn, TikTok, YouTube, or Yelp? |
 
-Visual Design can't judge taste — no check can — but "looks old and
-boring" tends to have concrete, checkable fingerprints: sites stuck on
-default system fonts, no real photography, an old-school layout, or
-actual HTML4-era tags (`<font>`, `<center>`, `<marquee>`, `<blink>`) that
-have been deprecated for 20+ years. Scored on how many of the first three
-signals are present, with any deprecated tag forcing a `bad` outright
-regardless of the others — that's too strong a tell to average away. It
-needs the live rendered DOM (fonts loaded, images decoded, computed
-layout), so like Accessibility/SEO it falls back to `unknown` rather than
-a guess if the headless browser itself failed and the plain-fetch
-fallback kicked in.
+### Visual Design: heuristics + a bounded vision check
+
+"Looks old and boring" is a taste judgment, and pattern-matching alone
+can't make it — a site can use a custom font, real photos, and a modern
+CSS layout and still look cluttered, cramped, or amateurish. This check
+has two layers to deal with that honestly instead of pretending a
+checklist can score taste:
+
+**Layer 1 (always runs, free, deterministic)** — `heuristicDesignVerdict()`
+in `api/analyze.js`. Checks the live rendered DOM for a loaded custom web
+font, real photography (real `<img>`s with meaningful dimensions, not
+tracking pixels/icons), and a modern flex/grid layout, plus a regex for
+literal HTML4-era tags (`<font>`, `<center>`, `<marquee>`, `<blink>` —
+deprecated 20+ years, so any hit forces `bad` outright regardless of the
+other signals). Needs the live rendered DOM, so like Accessibility/SEO it
+falls back to `unknown` rather than a guess if the headless browser
+itself failed and the plain-fetch fallback kicked in.
+
+**Layer 2 (only when Layer 1 says `good`)** — `evaluateVisualDesignWithVision()`.
+That's specifically the case Layer 1 can get wrong: technically current,
+still not actually good-looking. Only there, `renderWithBrowser()` takes a
+JPEG screenshot at a fixed 1280×800 desktop viewport and sends it to a
+vision-capable Claude model (`claude-haiku-4-5` by default, overridable
+via `DESIGN_VISION_MODEL`) with a forced tool call
+(`report_visual_design`) so the response is always structured — layout
+consistency, whitespace, visual hierarchy, image quality, color cohesion,
+and an overall verdict + a plain-English description. If that verdict
+disagrees with Layer 1, it wins and replaces both the status and the
+description. Bounding it to the `good` subset keeps the added latency and
+per-request cost from hitting every single check — most sites don't pass
+Layer 1 in the first place.
+
+**Requires `ANTHROPIC_API_KEY`** (Vercel → Settings → Environment
+Variables) to do anything — without it, `evaluateVisualDesignWithVision()`
+returns `null` immediately and the check silently stays at whatever Layer
+1 decided. Nothing breaks either way; you just don't get the deeper check
+until the key is set. Same fail-open pattern as `PAGESPEED_API_KEY`: a
+malformed response, an HTTP error, or a timeout (`VISION_TIMEOUT_MS`,
+20s) all fall back to Layer 1's verdict rather than blocking the request
+or guessing.
 
 Accessibility and SEO piggyback on the same PageSpeed Insights call as Page
 Speed — Lighthouse computes all of them together, so there's no extra
@@ -94,8 +123,9 @@ JavaScript (very common for footer social icons on Wix/Squarespace/etc.
 site builders) would otherwise be invisible to every check that scans the
 HTML, most notably Social Media Presence. Visual Design depends on it even
 more directly — it reads loaded web fonts, decoded image dimensions, and
-computed layout straight off the live DOM, none of which exist from a
-plain fetch of the raw HTML.
+computed layout straight off the live DOM (and its vision-check layer
+needs an actual screenshot), none of which exist from a plain fetch of
+the raw HTML.
 
 If the browser itself fails to launch for any reason (a bundle or runtime
 issue on a given deployment), it falls back to a plain fetch automatically
