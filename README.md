@@ -74,16 +74,6 @@ malformed response, an HTTP error, or a timeout (`VISION_TIMEOUT_MS`,
 20s) all fall back to Layer 1's verdict rather than blocking the request
 or guessing.
 
-Layer 2 is also the only check in this file that costs real money per
-call (everything else here is free), so it's gated by its own budget on
-top of the per-IP rate limit below: `checkVisionBudget()` caps it to
-`DESIGN_VISION_MAX_PER_HOUR` (default 100) vision calls per rolling hour,
-counted globally across every IP — not because the per-IP limit is
-wrong, but because it alone doesn't bound total spend if traffic is
-spread across many IPs. Once the budget's spent for the hour, calls just
-fall back to Layer 1's verdict like any other failure, logged as
-`[analyze] vision design check skipped — hourly budget of ... exhausted`.
-
 Accessibility and SEO piggyback on the same PageSpeed Insights call as Page
 Speed — Lighthouse computes all of them together, so there's no extra
 network cost. If that call fails entirely, Page Speed falls back to a
@@ -161,16 +151,13 @@ cases without needing an external store (Redis/Vercel KV) that would add
 setup you'd have to configure and pay for.
 
 - **Rate limit**: max 5 requests per IP per 60 seconds; anything past that
-  gets a 429 with a friendly message instead of hitting PageSpeed (or the
-  vision model) at all.
+  gets a 429 with a friendly message instead of hitting PageSpeed at all.
 - **Cache**: a successful result is reused for 10 minutes if the same
   domain is checked again, so refreshing or re-checking the same site
-  doesn't burn another PageSpeed call — or another vision call.
+  doesn't burn another PageSpeed call.
 
 Both exist specifically to protect the PageSpeed quota discussed above
-from being burned through faster than necessary. The Visual Design vision
-check (see above) has its own additional global budget on top of these,
-since unlike PageSpeed it costs real money per call.
+from being burned through faster than necessary.
 
 ### Business name + location from structured data
 

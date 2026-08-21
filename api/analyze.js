@@ -79,16 +79,6 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 5;
 const rateLimitLog = new Map(); // ip -> [timestamps]
 
-// A second, separate cap just for vision-model calls. The per-IP limit
-// above already gates this whole endpoint, but a vision call costs real
-// money per request (unlike everything else here, which is free) — a
-// single IP staying under 5/min for an hour straight, or a handful of
-// different IPs, could still run up real spend. This bounds total spend
-// regardless of how the traffic is distributed across IPs.
-const VISION_BUDGET_WINDOW_MS = 60 * 60 * 1000;
-const VISION_BUDGET_MAX = Number(process.env.DESIGN_VISION_MAX_PER_HOUR) || 100;
-let visionCallLog = []; // timestamps, across all IPs
-
 // Allows any single subdomain label (not just "www.") — m.linkedin.com,
 // business.facebook.com, uk.linkedin.com, etc. — while still anchoring on
 // the real hostname so it can't match a substring inside an unrelated
@@ -175,10 +165,6 @@ function heuristicDesignVerdict(html, designSignals) {
 async function evaluateVisualDesignWithVision(screenshotBase64) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
-  if (!checkVisionBudget()) {
-    console.warn('[analyze] vision design check skipped — hourly budget of', VISION_BUDGET_MAX, 'calls exhausted');
-    return null;
-  }
   try {
     const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -270,16 +256,6 @@ function checkRateLimit(ip) {
   }
   timestamps.push(now);
   rateLimitLog.set(ip, timestamps);
-  return true;
-}
-
-// Returns false once VISION_BUDGET_MAX vision-model calls have happened
-// (from any IP) within the trailing hour.
-function checkVisionBudget() {
-  const now = Date.now();
-  visionCallLog = visionCallLog.filter((t) => now - t < VISION_BUDGET_WINDOW_MS);
-  if (visionCallLog.length >= VISION_BUDGET_MAX) return false;
-  visionCallLog.push(now);
   return true;
 }
 
