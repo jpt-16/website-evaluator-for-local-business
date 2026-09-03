@@ -193,6 +193,49 @@
     return { letter: 'F', tone: 'bad' };
   }
 
+  function prefersReducedMotion() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  // Counts a number element up from 0 on each render. Tokened on the
+  // element itself so a second render (e.g. reopening a shared link)
+  // can't leave two rAF loops fighting over the same node.
+  function animateNumber(el, to, duration) {
+    if (prefersReducedMotion()) { el.textContent = to; return; }
+    var token = (el._animToken = (el._animToken || 0) + 1);
+    var start = null;
+    function step(ts) {
+      if (el._animToken !== token) return;
+      if (start === null) start = ts;
+      var p = Math.min((ts - start) / duration, 1);
+      var eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(to * eased);
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  // Sweeps the grade ring's conic-gradient (--grade-deg, see style.css)
+  // from 0 to the target angle via a real CSS transition. The double rAF
+  // forces the browser to commit a 0deg paint before the target is set,
+  // so the transition has something to animate from even right after the
+  // ring's container goes from [hidden] to visible in the same tick.
+  function animateGradeRing(ring, deg, colorVar) {
+    ring.style.setProperty('--grade-ring-color', 'var(' + colorVar + ')');
+    if (prefersReducedMotion()) {
+      ring.style.setProperty('--grade-deg', deg + 'deg');
+      return;
+    }
+    ring.style.setProperty('--grade-deg', '0deg');
+    var token = (ring._animToken = (ring._animToken || 0) + 1);
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        if (ring._animToken !== token) return;
+        ring.style.setProperty('--grade-deg', deg + 'deg');
+      });
+    });
+  }
+
   function render(data) {
     data = data || {};
     lastRenderedData = data;
@@ -205,15 +248,13 @@
     document.getElementById('preparedDate').textContent = data.preparedDate || 'August 6, 2026';
 
     var score = data.overallScore != null ? data.overallScore : 54;
-    document.getElementById('overallScore').textContent = score;
+    animateNumber(document.getElementById('overallScore'), score, 900);
 
     var grade = gradeFromScore(score);
     document.getElementById('gradeLetter').textContent = grade.letter;
     var ringColorVar = { good: '--good-ring', warn: '--warn-ring', bad: '--bad-ring' }[grade.tone];
     var deg = Math.max(0, Math.min(360, Math.round((score / 100) * 360)));
-    var gradeRing = document.getElementById('gradeRing');
-    gradeRing.style.background =
-      'conic-gradient(var(' + ringColorVar + ') ' + deg + 'deg, rgba(255,255,255,.16) ' + deg + 'deg 360deg)';
+    animateGradeRing(document.getElementById('gradeRing'), deg, ringColorVar);
 
     var descriptions = data.descriptions || {};
 
@@ -453,7 +494,11 @@
       navigator.clipboard.writeText(location.href).then(function () {
         var original = btn.textContent;
         btn.textContent = 'Copied!';
-        setTimeout(function () { btn.textContent = original; }, 1800);
+        btn.classList.add('share-btn--copied');
+        setTimeout(function () {
+          btn.textContent = original;
+          btn.classList.remove('share-btn--copied');
+        }, 1800);
       });
     });
   }
