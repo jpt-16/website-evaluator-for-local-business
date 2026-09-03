@@ -136,12 +136,25 @@ function heuristicDesignVerdict(html, designSignals) {
       desc: "We couldn't fully render your site to check its visual design on the last check — try checking again in a bit.",
     };
   }
+  const { usesCustomFont, usesModernLayout, realImages, layoutMode, fontFamily } = designSignals;
   const hasDeprecatedMarkup = DEPRECATED_MARKUP_RE.test(html);
-  const positives = [
-    designSignals.usesCustomFont,
-    designSignals.usesModernLayout,
-    designSignals.realImages >= 2,
-  ].filter(Boolean).length;
+  const positives = [usesCustomFont, usesModernLayout, realImages >= 2].filter(Boolean).length;
+
+  // Concrete, site-specific phrases built from what was actually found —
+  // reused across every tier below so the description reflects THIS site
+  // (font name, exact photo count, which layout mode) instead of reading
+  // identically for every site that happens to land in the same tier.
+  const fontPhrase = usesCustomFont
+    ? 'a custom font' + (fontFamily ? ' ("' + fontFamily + '")' : '')
+    : 'default system fonts' + (fontFamily ? ' (currently "' + fontFamily + '")' : '');
+  const imagePhrase = realImages === 0
+    ? 'no real photography'
+    : realImages === 1
+    ? 'only one real photo'
+    : realImages + ' real photos';
+  const layoutPhrase = usesModernLayout
+    ? 'a modern ' + (layoutMode || 'flex/grid') + ' layout'
+    : 'an old-school layout with no flex/grid';
 
   if (hasDeprecatedMarkup) {
     return {
@@ -152,22 +165,22 @@ function heuristicDesignVerdict(html, designSignals) {
   if (positives === 3) {
     return {
       status: 'good',
-      desc: 'Your site uses custom fonts, real photography, and a modern layout — it reads as current, not dated.',
+      desc: 'Your site uses ' + fontPhrase + ', ' + imagePhrase + ', and ' + layoutPhrase + ' — it reads as current, not dated.',
     };
   }
   if (positives >= 1) {
     const missing = [];
-    if (!designSignals.usesCustomFont) missing.push('custom fonts');
-    if (!designSignals.usesModernLayout) missing.push('a modern layout');
-    if (designSignals.realImages < 2) missing.push('real photography');
+    if (!usesCustomFont) missing.push(fontPhrase);
+    if (!usesModernLayout) missing.push(layoutPhrase);
+    if (realImages < 2) missing.push(imagePhrase);
     return {
       status: 'warning',
-      desc: 'Your site is missing ' + joinList(missing) + " — small things individually, but often exactly what makes a site feel dated at first glance.",
+      desc: 'Your site has ' + joinList(missing) + " — small things individually, but often exactly what makes a site feel dated at first glance.",
     };
   }
   return {
     status: 'bad',
-    desc: "Your site relies on default system fonts, has no real photography, and uses an old-school layout — together, that's what makes a site feel outdated the moment someone lands on it.",
+    desc: 'Your site relies on ' + fontPhrase + ', has ' + imagePhrase + ', and uses ' + layoutPhrase + " — together, that's what makes a site feel outdated the moment someone lands on it.",
   };
 }
 
@@ -495,16 +508,43 @@ async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
         }
         var usesCustomFont = !!(document.fonts && document.fonts.size > 0);
         var usesModernLayout = false;
+        var layoutMode = null;
         var all = document.querySelectorAll('body, body *');
         var cap = Math.min(all.length, 400);
         for (var j = 0; j < cap; j++) {
           var d = getComputedStyle(all[j]).display;
-          if (d === 'flex' || d === 'inline-flex' || d === 'grid' || d === 'inline-grid') {
+          if (d === 'flex' || d === 'inline-flex') {
             usesModernLayout = true;
+            layoutMode = 'flexbox';
+            break;
+          }
+          if (d === 'grid' || d === 'inline-grid') {
+            usesModernLayout = true;
+            layoutMode = 'grid';
             break;
           }
         }
-        return { realImages: realImages, usesCustomFont: usesCustomFont, usesModernLayout: usesModernLayout };
+        // Just for a concrete detail in the description text below — not
+        // used for scoring. Filtered to skip internal CSS tokens/generic
+        // keywords (e.g. "-apple-system", "sans-serif") that would look
+        // like a bug if shown to a non-technical site owner; a real name
+        // like "Arial" or "Poppins" is still shown either way.
+        var fontFamily = null;
+        try {
+          var bodyFont = getComputedStyle(document.body).fontFamily;
+          if (bodyFont) {
+            var raw = bodyFont.split(',')[0].replace(/["']/g, '').trim();
+            var GENERIC_FONT_RE = /^(-apple-system|blinkmacsystemfont|system-ui|ui-sans-serif|ui-serif|ui-monospace|sans-serif|serif|monospace|cursive|fantasy)$/i;
+            if (raw && !GENERIC_FONT_RE.test(raw)) fontFamily = raw;
+          }
+        } catch (e) {}
+        return {
+          realImages: realImages,
+          usesCustomFont: usesCustomFont,
+          usesModernLayout: usesModernLayout,
+          layoutMode: layoutMode,
+          fontFamily: fontFamily,
+        };
       } catch (e) {
         return null;
       }

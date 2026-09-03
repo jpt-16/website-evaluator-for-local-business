@@ -102,6 +102,14 @@ caps it to 30 calls/minute globally, to stay safely under NVIDIA's own
 hard 40/min account-wide limit even under concurrent load. Both fail open
 to Layer 1's verdict once exhausted, same as everything else here.
 
+Layer 1's description is built from phrases assembled out of what was
+actually found on that specific site — the exact font name (when one is
+readable off the page, filtered to skip internal CSS tokens like
+`-apple-system`), the exact count of real photos, and which layout mode
+(flexbox vs. grid) was detected — rather than one fixed sentence per
+tier. Two sites both landing in the `warning` tier will still read
+differently if they're missing different things.
+
 ### Reviews & Testimonials, and why this isn't "Google Reviews"
 
 This checks whether the *site itself* shows any review/testimonial
@@ -239,6 +247,21 @@ already existed for physically printing a report. That stylesheet also now
 hides the checker's search bar, status messages, and the share/PDF buttons
 themselves when printing, so only the report card exports, matching what a
 curated page already looked like on paper.
+
+### Skeleton loader
+
+While a live check runs (up to ~30s — headless render + PageSpeed +
+possibly a vision call), `#skeleton` in `index.html` shows in place of
+`#report`: a shimmering placeholder built with the same `.sheet` card
+footprint as the real report, so swapping one for the other on completion
+doesn't jump or reflow. It's deliberately a simplified 6-row placeholder,
+not a literal 13-row mirror of the checklist — skeletons are meant to
+convey "content incoming" via matching rhythm, not indicate the exact
+final content. `.skel-header` (light bars on the dark header band) and
+`.skel-rows` (dark bars on the light page body) use different placeholder
+colors since they sit on opposite backgrounds — the same fill would be
+invisible on one or the other. Respects `prefers-reduced-motion` by
+disabling the shimmer animation.
 
 ### "What To Fix First"
 

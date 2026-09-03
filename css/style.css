@@ -623,6 +623,71 @@ a:hover { color: var(--brand-hover); }
 
 .status-msg--error { color: oklch(78% 0.1 25); }
 
+/* Skeleton loader — shown in place of #report while a live check runs.
+   Reuses .sheet so it has the same card footprint (size/shadow/radius),
+   so swapping it out for the real report doesn't jump or reflow. */
+.skel-sheet { margin: 40px auto 0; }
+
+.skel-header {
+  background: linear-gradient(135deg, var(--dark-1), var(--dark-2));
+  padding: 26px 50px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+.skel-rows {
+  padding: 32px 50px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.skel-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.skel {
+  position: relative;
+  overflow: hidden;
+  background: oklch(97% 0.01 290 / .08);
+  border-radius: 6px;
+}
+/* .skel-header sits on the dark navy band (light-on-dark, above); .skel-rows
+   sits on the light page body, where that same near-white fill would be
+   nearly invisible — needs a dark-on-light fill instead. */
+.skel-rows .skel {
+  background: oklch(23% 0.015 75 / .09);
+}
+.skel-rows .skel::after {
+  background: linear-gradient(90deg, transparent, oklch(23% 0.015 75 / .18), transparent);
+}
+.skel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, oklch(97% 0.01 290 / .16), transparent);
+  transform: translateX(-100%);
+  animation: skel-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes skel-shimmer {
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skel::after { animation: none; }
+}
+
+.skel-eyebrow { width: 150px; height: 11px; }
+.skel-title { width: 230px; height: 24px; margin-top: 10px; }
+.skel-sub { width: 170px; height: 13px; margin-top: 10px; }
+.skel-grade { width: 104px; height: 104px; border-radius: 50%; flex-shrink: 0; }
+.skel-row-dot { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; }
+.skel-row-text { flex: 1; height: 13px; }
+.skel-row-pill { width: 92px; height: 26px; border-radius: 999px; flex-shrink: 0; }
+
 .tool-wrap .sheet { margin: 40px auto 0; }
 
 /* Print: full bleed, letter-sized pages. The report now regularly runs
@@ -645,7 +710,7 @@ a:hover { color: var(--brand-hover); }
   /* Only the report card itself should print/export — not the checker's
      search UI, status messages, or the share/PDF buttons (meaningless
      once it's already on paper). */
-  .tool-intro, .status-msg, .grade-actions { display: none; }
+  .tool-intro, .status-msg, .grade-actions, .skel-sheet { display: none; }
   .tool-wrap { padding: 0; }
 }
 

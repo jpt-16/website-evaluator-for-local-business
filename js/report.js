@@ -483,6 +483,7 @@
     var btn = document.getElementById('checkBtn');
     var statusMsg = document.getElementById('statusMsg');
     var report = document.getElementById('report');
+    var skeleton = document.getElementById('skeleton');
 
     // Reopen a shared link (#r=...) with the exact snapshot it captured,
     // instead of showing the empty checker state.
@@ -513,6 +514,10 @@
       btn.disabled = true;
       btn.textContent = 'Checking…';
       report.hidden = true;
+      if (skeleton) {
+        skeleton.hidden = false;
+        skeleton.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
       setStatus('Running a full site check — this can take up to 30 seconds…', false);
       track('check_started', { domain: domain });
 
@@ -538,6 +543,7 @@
         .finally(function () {
           btn.disabled = false;
           btn.textContent = 'Check My Website';
+          if (skeleton) skeleton.hidden = true;
         });
     });
   }
