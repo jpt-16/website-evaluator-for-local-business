@@ -467,7 +467,16 @@ async function runPageSpeedCheck(usedUrl) {
 
 // Renders the page in a real headless browser so client-side-injected
 // content (social widgets, etc.) is visible, not just the initial HTML.
-async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
+//
+// onUsedUrl fires the instant navigation lands (before the ~2-3s spent
+// waiting for injected content, reading designSignals, and screenshotting)
+// so the caller can start PageSpeed Insights — by far the slowest thing in
+// this whole request (Google runs a live Lighthouse audit; 10-25s is
+// normal) — right away instead of waiting for the rest of the browser
+// work to finish first. Since PageSpeed's own runtime dwarfs that render
+// tail, this makes the tail essentially free instead of stacking in front
+// of the slowest step.
+async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs, onUsedUrl) {
   const [puppeteer, chromium] = await Promise.all([loadPuppeteer(), loadChromium()]);
   const browser = await puppeteer.launch({
     args: chromium.args,
@@ -492,6 +501,7 @@ async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
       usedUrl = httpUrl;
       sslOk = false;
     }
+    if (onUsedUrl) onUsedUrl(usedUrl);
     // Give client-side widgets (social icons, embedded scripts) a beat to
     // inject content after the initial DOM is ready, without waiting for
     // every last network connection to go idle (some pages never do).
@@ -667,9 +677,19 @@ module.exports = async (req, res) => {
     checkCrawlFile(httpsUrl + '/sitemap.xml'),
   ]);
 
+  // Set by renderWithBrowser's onUsedUrl callback the instant navigation
+  // lands, so PageSpeed Insights — the slowest step in this whole request
+  // — starts as early as possible instead of waiting for the rest of the
+  // browser work (injected-content wait, design signals, screenshot) to
+  // finish first. Falls back to starting it after the fact if the browser
+  // path fails entirely and we drop to fetchPlain below.
+  let pageSpeedPromise = null;
+
   let statusCode, usedUrl, sslOk, html, designSignals, designScreenshot;
   try {
-    const rendered = await renderWithBrowser(httpsUrl, httpUrl, UA, BROWSER_NAV_TIMEOUT_MS);
+    const rendered = await renderWithBrowser(httpsUrl, httpUrl, UA, BROWSER_NAV_TIMEOUT_MS, (url) => {
+      pageSpeedPromise = runPageSpeedCheck(url);
+    });
     statusCode = rendered.statusCode;
     usedUrl = rendered.usedUrl;
     sslOk = rendered.sslOk;
@@ -686,6 +706,7 @@ module.exports = async (req, res) => {
       html = plain.html;
       designSignals = plain.designSignals;
       designScreenshot = plain.designScreenshot;
+      pageSpeedPromise = runPageSpeedCheck(usedUrl);
     } catch (fetchErr) {
       res.status(200).json({
         ok: false,
@@ -732,12 +753,10 @@ module.exports = async (req, res) => {
 
   // --- Page Speed / Accessibility / SEO (PageSpeed Insights, with a
   // retry) and Visual Design's vision layer, run concurrently -----------
-  // Both are independent of each other and both can be slow, so running
-  // them at the same time (rather than one after the other) is what makes
-  // PageSpeed's retry affordable without risking Vercel's 60s function
-  // timeout.
-  const pageSpeedPromise = runPageSpeedCheck(usedUrl);
-
+  // pageSpeedPromise was already started above — as early as the browser
+  // path allows (right after navigation) or, on the fetchPlain fallback,
+  // right after that resolves. Either way it's already in flight by now,
+  // overlapping with the vision check below instead of adding to it.
   const heuristic = heuristicDesignVerdict(html, designSignals);
   const visionPromise = (heuristic.status === 'good' && designScreenshot)
     ? evaluateVisualDesignWithVision(designScreenshot)
