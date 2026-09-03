@@ -222,17 +222,31 @@ a:hover { color: var(--brand-hover); }
 }
 
 .stat-tile {
+  position: relative;
   flex: 1;
   min-width: 0;
   background: #fff;
   border: 1px solid var(--border);
-  border-top: 3px solid transparent;
   border-radius: 10px;
   padding: 14px 16px;
+  overflow: hidden;
 }
-.stat-tile--good { border-top-color: var(--good-ring); }
-.stat-tile--warn { border-top-color: var(--warn-ring); }
-.stat-tile--bad  { border-top-color: var(--bad-ring); }
+/* A same-width border-top would fight the card's own border-radius at the
+   corners (a thicker top border than the sides makes the curve pinch
+   unevenly). This strip is clipped by the card's own overflow:hidden
+   instead, so it always follows the real rounded corner cleanly. */
+.stat-tile::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: transparent;
+}
+.stat-tile--good::before { background: var(--good-ring); }
+.stat-tile--warn::before { background: var(--warn-ring); }
+.stat-tile--bad::before  { background: var(--bad-ring); }
 
 .stat-num {
   font-family: 'Archivo', system-ui, sans-serif;
