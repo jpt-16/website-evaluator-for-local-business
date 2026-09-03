@@ -251,6 +251,13 @@ function checkVisionRpm() {
 // rather than blocking or guessing.
 async function evaluateVisualDesignWithVision(screenshotBase64) {
   const apiKey = process.env.NVIDIA_API_KEY;
+  // Masked diagnostic only — never logs the full key. Logged every time
+  // this function is even attempted (not just on failure), so "key never
+  // reached the function" is distinguishable from "key was rejected".
+  console.log(
+    '[analyze] NVIDIA_API_KEY present:', !!apiKey,
+    apiKey ? 'length: ' + apiKey.length + ' looks-like: ' + apiKey.slice(0, 6) + '...' + apiKey.slice(-4) : ''
+  );
   if (!apiKey) return null;
   if (screenshotBase64.length > VISION_MAX_IMAGE_B64_CHARS) {
     console.warn('[analyze] vision design check skipped — screenshot too large for the hosted request-body limit');
@@ -292,19 +299,30 @@ async function evaluateVisualDesignWithVision(screenshotBase64) {
     }
     const json = await res.json();
     const text = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
-    if (!text) return null;
+    if (!text) {
+      console.error('[analyze] vision design check — response had no message content:', JSON.stringify(json).slice(0, 400));
+      return null;
+    }
 
     // The model is asked for pure JSON, but defensively pull out just the
     // {...} block in case it wraps it in prose or a code fence anyway.
     const match = String(text).match(/\{[\s\S]*\}/);
-    if (!match) return null;
+    if (!match) {
+      console.error('[analyze] vision design check — no JSON object found in response text:', String(text).slice(0, 400));
+      return null;
+    }
     let parsed;
     try {
       parsed = JSON.parse(match[0]);
     } catch (e) {
+      console.error('[analyze] vision design check — JSON.parse failed on:', match[0].slice(0, 400));
       return null;
     }
-    if (!parsed || !['good', 'warning', 'bad'].includes(parsed.status) || !parsed.description) return null;
+    if (!parsed || !['good', 'warning', 'bad'].includes(parsed.status) || !parsed.description) {
+      console.error('[analyze] vision design check — parsed JSON missing expected shape:', JSON.stringify(parsed).slice(0, 400));
+      return null;
+    }
+    console.log('[analyze] vision design check succeeded — status:', parsed.status);
     return { status: parsed.status, desc: String(parsed.description).slice(0, 500) };
   } catch (e) {
     console.error('[analyze] vision design check failed —', e && e.message ? e.message : e);
