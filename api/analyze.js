@@ -36,6 +36,12 @@ const UA = 'Mozilla/5.0 (compatible; JTBuildsCo-WebsiteHealthReport/1.0)';
 const FETCH_TIMEOUT_MS = 8000;
 const BROWSER_NAV_TIMEOUT_MS = 12000;
 const PAGESPEED_TIMEOUT_MS = 15000;
+// PSI's own reliability notes acknowledge transient failures under load —
+// one retry meaningfully cuts how often a site that's actually fine falls
+// back to 'unknown' just because of a momentary blip. Only safe to afford
+// (without risking Vercel's 60s function timeout) because this check now
+// runs concurrently with the vision check below, not after it.
+const PAGESPEED_MAX_ATTEMPTS = 2;
 const CRAWL_FILE_TIMEOUT_MS = 5000;
 const VISION_TIMEOUT_MS = 20000;
 
@@ -344,6 +350,108 @@ async function checkCrawlFile(url) {
   }
 }
 
+// A single attempt at the PageSpeed Insights call — throws on any failure
+// (timeout, network error, non-2xx) so the retry loop below can catch it.
+async function fetchPageSpeedOnce(usedUrl) {
+  const key = process.env.PAGESPEED_API_KEY;
+  // Sent in both cases defensively: Google's API discovery docs for this
+  // endpoint document the `category` enum in uppercase, but the response's
+  // own category keys are lowercase.
+  const categoryParams =
+    'category=performance&category=PERFORMANCE' +
+    '&category=accessibility&category=ACCESSIBILITY' +
+    '&category=seo&category=SEO';
+  const psUrl =
+    'https://www.googleapis.com/pagespeedonline/v5/runPagespeed?strategy=mobile' +
+    '&' + categoryParams + '&url=' +
+    encodeURIComponent(usedUrl) +
+    (key ? '&key=' + key : '');
+  const psRes = await fetchWithTimeout(psUrl, {}, PAGESPEED_TIMEOUT_MS);
+  if (!psRes.ok) {
+    const errBody = await psRes.text().catch(() => '');
+    throw new Error('pagespeed http ' + psRes.status + (errBody ? ' — ' + errBody.slice(0, 400) : ''));
+  }
+  const psJson = await psRes.json();
+  return psJson.lighthouseResult.categories;
+}
+
+// Page Speed, Accessibility, and SEO Basics all come from one PageSpeed
+// Insights call — Lighthouse computes all three together, so there's no
+// extra network cost to getting all of them from a single request.
+//
+// All three go to 'unknown' ("Not Verified") if PSI fails even after a
+// retry — including Speed, which used to silently fall back to a local
+// timing guess (how long *our own server* took to fetch the page) under
+// the exact same status labels as a real Lighthouse score. That let the
+// same unchanged site show as "Failing" one run and "Good" the next
+// purely because two different measurement methods disagreed, with no
+// indication either had happened — worse than just saying "couldn't
+// verify," which Accessibility/SEO already do honestly when this fails.
+async function runPageSpeedCheck(usedUrl) {
+  const key = process.env.PAGESPEED_API_KEY;
+  // Masked diagnostic only — never logs the full key.
+  console.log(
+    '[analyze] PAGESPEED_API_KEY present:', !!key,
+    key ? 'length: ' + key.length + ' looks-like: ' + key.slice(0, 4) + '...' + key.slice(-4) : ''
+  );
+
+  let cats = null;
+  for (let attempt = 1; attempt <= PAGESPEED_MAX_ATTEMPTS; attempt++) {
+    try {
+      cats = await fetchPageSpeedOnce(usedUrl);
+      break;
+    } catch (e) {
+      console.error('[analyze] PageSpeed Insights attempt', attempt, 'of', PAGESPEED_MAX_ATTEMPTS, 'failed for', usedUrl, '—', e && e.message ? e.message : e);
+    }
+  }
+
+  const result = {};
+  if (cats) {
+    if (!cats.accessibility || !cats.seo) {
+      console.warn('[analyze] PageSpeed response missing categories for', usedUrl, '— got:', Object.keys(cats).join(', '));
+    }
+
+    result.speedStatus = scoreToStatus(cats.performance.score);
+    result.speedDesc = result.speedStatus === 'good'
+      ? 'Your site loads quickly on mobile.'
+      : result.speedStatus === 'warning'
+      ? 'Your site loads a bit slowly on mobile — some visitors may leave before it finishes.'
+      : 'Your site is slow to load on mobile, and slow sites lose visitors fast.';
+
+    if (cats.accessibility && cats.accessibility.score != null) {
+      result.accessibilityStatus = scoreToStatus(cats.accessibility.score);
+      result.accessibilityDesc = result.accessibilityStatus === 'good'
+        ? 'Your site follows good accessibility practices for screen readers and assistive tech.'
+        : result.accessibilityStatus === 'warning'
+        ? 'Some accessibility basics could use attention — a few visitors using assistive tech may have a rougher time.'
+        : 'Your site has real accessibility gaps, making it hard to use for visitors relying on assistive tech.';
+    }
+
+    if (cats.seo && cats.seo.score != null) {
+      result.seoStatus = scoreToStatus(cats.seo.score);
+      result.seoDesc = result.seoStatus === 'good'
+        ? 'Your site follows the basics Google looks for.'
+        : result.seoStatus === 'warning'
+        ? 'A few basic SEO fundamentals are missing or incomplete.'
+        : 'Your site is missing basic SEO fundamentals, making it harder for Google to find and rank you.';
+    }
+  }
+
+  if (!result.speedStatus) {
+    result.speedStatus = 'unknown';
+    result.speedDesc = "We couldn't verify this on the last check (a technical issue on our end, not a reflection of your site) — try checking again in a bit.";
+  }
+  if (!result.accessibilityStatus) {
+    result.accessibilityStatus = 'unknown';
+    result.accessibilityDesc = "We couldn't verify this on the last check (a technical issue on our end, not a reflection of your site) — try checking again in a bit.";
+  }
+  if (!result.seoStatus) {
+    result.seoStatus = 'unknown';
+    result.seoDesc = "We couldn't verify this on the last check (a technical issue on our end, not a reflection of your site) — try checking again in a bit.";
+  }
+  return result;
+}
+
 // Renders the page in a real headless browser so client-side-injected
 // content (social widgets, etc.) is visible, not just the initial HTML.
 async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
@@ -361,7 +469,6 @@ async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
     // undocumented default happens to be — most local-business sites are
     // still designed desktop-first even when responsive.
     await page.setViewport({ width: 1280, height: 800 });
-    const t0 = Date.now();
     let response, usedUrl, sslOk;
     try {
       response = await page.goto(httpsUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
@@ -424,7 +531,6 @@ async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
       usedUrl,
       sslOk,
       html,
-      elapsedMs: Date.now() - t0,
       designSignals,
       designScreenshot,
     };
@@ -439,15 +545,13 @@ async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
 async function fetchPlain(httpsUrl, httpUrl, ua) {
   const fetchOpts = { headers: { 'User-Agent': ua, Accept: 'text/html,*/*' } };
   try {
-    const t0 = Date.now();
     const response = await fetchWithTimeout(httpsUrl, fetchOpts, FETCH_TIMEOUT_MS);
     const html = await response.text();
-    return { statusCode: response.status, usedUrl: httpsUrl, sslOk: true, html, elapsedMs: Date.now() - t0, designSignals: null, designScreenshot: null };
+    return { statusCode: response.status, usedUrl: httpsUrl, sslOk: true, html, designSignals: null, designScreenshot: null };
   } catch (e) {
-    const t0 = Date.now();
     const response = await fetchWithTimeout(httpUrl, fetchOpts, FETCH_TIMEOUT_MS);
     const html = await response.text();
-    return { statusCode: response.status, usedUrl: httpUrl, sslOk: false, html, elapsedMs: Date.now() - t0, designSignals: null, designScreenshot: null };
+    return { statusCode: response.status, usedUrl: httpUrl, sslOk: false, html, designSignals: null, designScreenshot: null };
   }
 }
 
@@ -523,14 +627,13 @@ module.exports = async (req, res) => {
     checkCrawlFile(httpsUrl + '/sitemap.xml'),
   ]);
 
-  let statusCode, usedUrl, sslOk, html, elapsedMs, designSignals, designScreenshot;
+  let statusCode, usedUrl, sslOk, html, designSignals, designScreenshot;
   try {
     const rendered = await renderWithBrowser(httpsUrl, httpUrl, UA, BROWSER_NAV_TIMEOUT_MS);
     statusCode = rendered.statusCode;
     usedUrl = rendered.usedUrl;
     sslOk = rendered.sslOk;
     html = rendered.html;
-    elapsedMs = rendered.elapsedMs;
     designSignals = rendered.designSignals;
     designScreenshot = rendered.designScreenshot;
   } catch (browserErr) {
@@ -541,7 +644,6 @@ module.exports = async (req, res) => {
       usedUrl = plain.usedUrl;
       sslOk = plain.sslOk;
       html = plain.html;
-      elapsedMs = plain.elapsedMs;
       designSignals = plain.designSignals;
       designScreenshot = plain.designScreenshot;
     } catch (fetchErr) {
@@ -588,93 +690,31 @@ module.exports = async (req, res) => {
     ? 'We found a link to at least one social profile on your site.'
     : "We didn't find any links to social profiles on your site.";
 
-  // --- Page speed, Accessibility, SEO: one Google PageSpeed Insights
-  // call covers all three Lighthouse categories, with a timing-based
-  // fallback for speed only if the API call itself fails (there's no
-  // local equivalent for accessibility/SEO, so those just go unverified).
-  let speedStatus, speedDesc;
-  let accessibilityStatus, accessibilityDesc;
-  let seoStatus, seoDesc;
+  // --- Page Speed / Accessibility / SEO (PageSpeed Insights, with a
+  // retry) and Visual Design's vision layer, run concurrently -----------
+  // Both are independent of each other and both can be slow, so running
+  // them at the same time (rather than one after the other) is what makes
+  // PageSpeed's retry affordable without risking Vercel's 60s function
+  // timeout.
+  const pageSpeedPromise = runPageSpeedCheck(usedUrl);
 
-  try {
-    const key = process.env.PAGESPEED_API_KEY;
-    // Masked diagnostic only — never logs the full key.
-    console.log(
-      '[analyze] PAGESPEED_API_KEY present:', !!key,
-      key ? 'length: ' + key.length + ' looks-like: ' + key.slice(0, 4) + '...' + key.slice(-4) : ''
-    );
-    // Sent in both cases defensively: Google's API discovery docs for this
-    // endpoint document the `category` enum in uppercase, but the response's
-    // own category keys are lowercase.
-    const categoryParams =
-      'category=performance&category=PERFORMANCE' +
-      '&category=accessibility&category=ACCESSIBILITY' +
-      '&category=seo&category=SEO';
-    const psUrl =
-      'https://www.googleapis.com/pagespeedonline/v5/runPagespeed?strategy=mobile' +
-      '&' + categoryParams + '&url=' +
-      encodeURIComponent(usedUrl) +
-      (key ? '&key=' + key : '');
-    const psRes = await fetchWithTimeout(psUrl, {}, PAGESPEED_TIMEOUT_MS);
-    if (!psRes.ok) {
-      const errBody = await psRes.text().catch(() => '');
-      throw new Error('pagespeed http ' + psRes.status + (errBody ? ' — ' + errBody.slice(0, 400) : ''));
-    }
-    const psJson = await psRes.json();
-    const cats = psJson.lighthouseResult.categories;
-    if (!cats.accessibility || !cats.seo) {
-      console.warn('[analyze] PageSpeed response missing categories for', usedUrl, '— got:', Object.keys(cats).join(', '));
-    }
+  const heuristic = heuristicDesignVerdict(html, designSignals);
+  const visionPromise = (heuristic.status === 'good' && designScreenshot)
+    ? evaluateVisualDesignWithVision(designScreenshot)
+    : Promise.resolve(null);
 
-    speedStatus = scoreToStatus(cats.performance.score);
-    speedDesc = speedStatus === 'good'
-      ? 'Your site loads quickly on mobile.'
-      : speedStatus === 'warning'
-      ? 'Your site loads a bit slowly on mobile — some visitors may leave before it finishes.'
-      : 'Your site is slow to load on mobile, and slow sites lose visitors fast.';
+  const [pageSpeedResult, visionVerdict] = await Promise.all([pageSpeedPromise, visionPromise]);
 
-    if (cats.accessibility && cats.accessibility.score != null) {
-      accessibilityStatus = scoreToStatus(cats.accessibility.score);
-      accessibilityDesc = accessibilityStatus === 'good'
-        ? 'Your site follows good accessibility practices for screen readers and assistive tech.'
-        : accessibilityStatus === 'warning'
-        ? 'Some accessibility basics could use attention — a few visitors using assistive tech may have a rougher time.'
-        : 'Your site has real accessibility gaps, making it hard to use for visitors relying on assistive tech.';
-    }
+  const { speedStatus, speedDesc, accessibilityStatus, accessibilityDesc, seoStatus, seoDesc } = pageSpeedResult;
 
-    if (cats.seo && cats.seo.score != null) {
-      seoStatus = scoreToStatus(cats.seo.score);
-      seoDesc = seoStatus === 'good'
-        ? 'Your site follows the basics Google looks for.'
-        : seoStatus === 'warning'
-        ? 'A few basic SEO fundamentals are missing or incomplete.'
-        : 'Your site is missing basic SEO fundamentals, making it harder for Google to find and rank you.';
-    }
-  } catch (e) {
-    console.error('[analyze] PageSpeed Insights failed for', usedUrl, '—', e && e.message ? e.message : e);
-    if (elapsedMs < 1200) {
-      speedStatus = 'good';
-      speedDesc = 'Your site responded quickly in our check.';
-    } else if (elapsedMs < 3000) {
-      speedStatus = 'warning';
-      speedDesc = 'Your site took a little while to respond in our check — worth a closer look.';
-    } else {
-      speedStatus = 'bad';
-      speedDesc = 'Your site was slow to respond in our check, and slow sites lose visitors fast.';
-    }
+  let designStatus = heuristic.status;
+  let designDesc = heuristic.desc;
+  if (visionVerdict) {
+    designStatus = visionVerdict.status;
+    designDesc = visionVerdict.desc;
   }
-
-  // Distinct from a real "warning" verdict — this means we don't know,
-  // not that we checked and it was mediocre. Excluded from the score
-  // below rather than guessed at.
-  if (!accessibilityStatus) {
-    accessibilityStatus = 'unknown';
-    accessibilityDesc = "We couldn't verify this on the last check (a technical issue on our end, not a reflection of your site) — try checking again in a bit.";
-  }
-  if (!seoStatus) {
-    seoStatus = 'unknown';
-    seoDesc = "We couldn't verify this on the last check (a technical issue on our end, not a reflection of your site) — try checking again in a bit.";
-  }
+  // else: vision call failed/unavailable/skipped — keep the heuristic's
+  // 'good' verdict rather than blocking on it.
 
   // --- Site freshness (stale copyright year) ---------------------------
   let freshnessStatus = 'good';
@@ -697,24 +737,6 @@ module.exports = async (req, res) => {
       freshnessStatus = 'good';
       freshnessDesc = "Your site's footer shows a current copyright year.";
     }
-  }
-
-  // --- Visual design (modern vs. dated look) ---------------------------
-  // Two layers: a free, deterministic heuristic that runs on every
-  // request (concrete DOM/CSS signals — can't judge taste, doesn't try),
-  // then — only when that heuristic already says 'good' — a real vision
-  // model looks at an actual screenshot and can override the verdict. That
-  // second layer is what catches a site that's technically current but
-  // still looks cluttered or amateurish, which the heuristic alone can't.
-  let { status: designStatus, desc: designDesc } = heuristicDesignVerdict(html, designSignals);
-  if (designStatus === 'good' && designScreenshot) {
-    const visionVerdict = await evaluateVisualDesignWithVision(designScreenshot);
-    if (visionVerdict) {
-      designStatus = visionVerdict.status;
-      designDesc = visionVerdict.desc;
-    }
-    // else: vision call failed/unavailable — keep the heuristic's 'good'
-    // verdict rather than blocking on it.
   }
 
   // --- Contact info visibility ------------------------------------------

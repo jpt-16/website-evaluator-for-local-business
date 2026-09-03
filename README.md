@@ -72,6 +72,15 @@ replaces both the status and the description. Bounding it to the `good`
 subset keeps the added latency and per-request cost from hitting every
 single check — most sites don't pass Layer 1 in the first place.
 
+**Runs concurrently with the PageSpeed check**, not after it —
+`evaluateVisualDesignWithVision()` and `runPageSpeedCheck()` are both
+kicked off together and awaited with `Promise.all`, since they're
+independent of each other and both can be slow. That overlap is what
+makes PageSpeed's retry (above) affordable without risking Vercel's 60s
+function timeout; running them sequentially could add up to ~35s+ in the
+worst case, uncomfortably close to that limit on top of the headless
+render itself.
+
 **Requires `NVIDIA_API_KEY`** (Vercel → Settings → Environment Variables)
 to do anything — get one free at [build.nvidia.com](https://build.nvidia.com)
 (no card, ~1000-5000 one-time credits, never expires). Without it,
@@ -131,12 +140,23 @@ free one at [Google Cloud Console](https://console.cloud.google.com/apis/credent
 by enabling the "PageSpeed Insights API" on any project. Without a key,
 requests use a shared anonymous quota (a global daily cap split across
 every unrelated project calling the API without a key) that's confirmed to
-run out — `[analyze] PageSpeed Insights failed for ... — pagespeed http
-429 — "Quota exceeded for quota metric 'Queries' and limit 'Queries per
-day'"` in the logs. When that call fails, Page Speed quietly falls back to
-a rough timing estimate (which still looks plausible, so it's easy not to
-notice), but Accessibility and SEO have no such fallback, so they show the
-same "Not Verified" gray pill for every single site until the key is set.
+run out — `[analyze] PageSpeed Insights attempt 1 of 2 failed for ... —
+pagespeed http 429 — "Quota exceeded for quota metric 'Queries' and limit
+'Queries per day'"` in the logs. When both attempts fail, **all three**
+(Page Speed, Accessibility, SEO) show the same "Not Verified" gray pill —
+Page Speed included. It used to quietly substitute a rough local timing
+estimate under the same "Failing"/"Good" labels as a real Lighthouse
+score, which looked like the tool contradicting itself on an unchanged
+site whenever the two disagreed. Being honestly unverified beats a
+confident-looking guess that might not match the next run.
+
+`runPageSpeedCheck()` retries once (`PAGESPEED_MAX_ATTEMPTS`) on any
+failure — timeout, network error, non-2xx — before giving up to
+`unknown`, since PSI has real transient failures under load and a retry
+meaningfully cuts how often a site that's actually fine ends up
+unverified. This only fits inside Vercel's 60s function timeout because
+it now runs concurrently with the Visual Design vision check (see below)
+rather than after it — see the "runs concurrently" note there.
 
 ### Headless rendering (not just a plain fetch)
 
