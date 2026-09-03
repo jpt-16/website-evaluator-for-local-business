@@ -28,22 +28,82 @@ third-party site directly — CORS blocks it — so this has to happen server-si
 | SSL / Security | Does HTTPS load without error? |
 | Accessibility | PageSpeed Insights' accessibility score — same API call as Page Speed, just reading another field from the same response |
 | SEO Basics | PageSpeed Insights' SEO score (meta tags, crawlability, etc.) — likewise free from the same call |
-| Visual Design | Does the rendered page load a custom web font, real photography, and a modern (flex/grid) layout — or literal deprecated tags like `<font>`/`<center>`/`<marquee>`? |
+| Crawlability | Does `/robots.txt` and/or `/sitemap.xml` exist? Separate from PageSpeed's on-page SEO score, which checks neither. |
+| Visual Design | Two layers — see below |
 | Site Freshness | Is there a copyright year in the footer, and how stale is it? (2+ years old = failing) |
 | Contact Info | Is there a `tel:` link (tap-to-call), a plain phone number in the text, or nothing at all? |
+| Reviews & Testimonials | Review/AggregateRating structured data, or a testimonials section in the text |
+| Privacy Policy | Is there a link to a privacy policy (or, as a fallback, terms of some kind)? |
 | Social Media Presence | Does the page link to Facebook, Instagram, X/Twitter, LinkedIn, TikTok, YouTube, or Yelp? |
 
-Visual Design can't judge taste — no check can — but "looks old and
-boring" tends to have concrete, checkable fingerprints: sites stuck on
-default system fonts, no real photography, an old-school layout, or
-actual HTML4-era tags (`<font>`, `<center>`, `<marquee>`, `<blink>`) that
-have been deprecated for 20+ years. Scored on how many of the first three
-signals are present, with any deprecated tag forcing a `bad` outright
-regardless of the others — that's too strong a tell to average away. It
-needs the live rendered DOM (fonts loaded, images decoded, computed
-layout), so like Accessibility/SEO it falls back to `unknown` rather than
-a guess if the headless browser itself failed and the plain-fetch
-fallback kicked in.
+### Visual Design: heuristics + a bounded vision check
+
+"Looks old and boring" is a taste judgment, and pattern-matching alone
+can't make it — a site can use a custom font, real photos, and a modern
+CSS layout and still look cluttered, cramped, or amateurish. This check
+has two layers to deal with that honestly instead of pretending a
+checklist can score taste:
+
+**Layer 1 (always runs, free, deterministic)** — `heuristicDesignVerdict()`
+in `api/analyze.js`. Checks the live rendered DOM for a loaded custom web
+font, real photography (real `<img>`s with meaningful dimensions, not
+tracking pixels/icons), and a modern flex/grid layout, plus a regex for
+literal HTML4-era tags (`<font>`, `<center>`, `<marquee>`, `<blink>` —
+deprecated 20+ years, so any hit forces `bad` outright regardless of the
+other signals). Needs the live rendered DOM, so like Accessibility/SEO it
+falls back to `unknown` rather than a guess if the headless browser
+itself failed and the plain-fetch fallback kicked in.
+
+**Layer 2 (only when Layer 1 says `good`)** — `evaluateVisualDesignWithVision()`.
+That's specifically the case Layer 1 can get wrong: technically current,
+still not actually good-looking. Only there, `renderWithBrowser()` takes a
+low-quality JPEG screenshot at a fixed 1280×800 desktop viewport and sends
+it to a vision-capable model on [NVIDIA's free build.nvidia.com API]
+(https://build.nvidia.com) — `meta/llama-3.2-11b-vision-instruct` by
+default, overridable via `DESIGN_VISION_MODEL` — via its OpenAI-compatible
+`/v1/chat/completions` endpoint. The prompt asks it to weigh layout
+consistency, whitespace, visual hierarchy, image quality, and color
+cohesion into one verdict, returned as plain JSON in the response text
+(not a forced tool call — reliability of tool-calling on this specific
+model via NIM wasn't certain enough to depend on, so this parses `{...}`
+out of the text defensively instead and returns `null`, keeping Layer 1's
+verdict, on anything malformed). If it disagrees with Layer 1, it wins and
+replaces both the status and the description. Bounding it to the `good`
+subset keeps the added latency and per-request cost from hitting every
+single check — most sites don't pass Layer 1 in the first place.
+
+**Requires `NVIDIA_API_KEY`** (Vercel → Settings → Environment Variables)
+to do anything — get one free at [build.nvidia.com](https://build.nvidia.com)
+(no card, ~1000-5000 one-time credits, never expires). Without it,
+`evaluateVisualDesignWithVision()` returns `null` immediately and the
+check silently stays at whatever Layer 1 decided — nothing breaks either
+way. Same fail-open pattern for a malformed response, an HTTP error, an
+oversized screenshot, or a timeout (`VISION_TIMEOUT_MS`, 20s). One thing
+worth knowing: NVIDIA's free hosted endpoints reportedly use request data
+to help train their models (unlike, say, Anthropic's API, which doesn't
+train on API traffic by default) — for screenshots of public business
+homepages that's a reasonable tradeoff for "free," but it's worth knowing
+going in.
+
+Free NVIDIA credits are a fixed one-time allotment, not a renewing quota
+— `checkVisionBudget()` caps Layer 2 to `DESIGN_VISION_MAX_PER_HOUR`
+(default 100) calls per rolling hour, counted globally across every IP,
+specifically to make that allotment last. `checkVisionRpm()` separately
+caps it to 30 calls/minute globally, to stay safely under NVIDIA's own
+hard 40/min account-wide limit even under concurrent load. Both fail open
+to Layer 1's verdict once exhausted, same as everything else here.
+
+### Reviews & Testimonials, and why this isn't "Google Reviews"
+
+This checks whether the *site itself* shows any review/testimonial
+content — `Review`/`AggregateRating` schema (the same markup Google reads
+for star ratings in search results), or a plain-text testimonials
+section as a fallback. It's deliberately not the same thing as an actual
+Google Business Profile rating: there's no reliable free way to verify a
+business's real Google star rating from just a domain, and a wrong guess
+there would be worse than not showing it. "Best Practices" (Lighthouse's
+4th default category) is similarly left out — mostly overlaps with the
+SSL check anyway.
 
 Accessibility and SEO piggyback on the same PageSpeed Insights call as Page
 Speed — Lighthouse computes all of them together, so there's no extra
@@ -59,13 +119,7 @@ being counted as a strike against the site, and won't show up in "What
 This Is Costing You" / "What To Fix First" — nothing to rank if we don't
 actually know.
 
-Google Reviews isn't in the checklist at all — there's no reliable free way
-to verify that from a domain alone, and a wrong guess (or an always-neutral
-"not checked" row) wasn't worth the space. "Best Practices" (Lighthouse's
-4th default category) is deliberately not surfaced either — mostly
-overlaps with the SSL check anyway.
-
-The overall score is the average of these 10 categories. The checklist
+The overall score is the average of these 13 categories. The checklist
 descriptions are generated per-domain based on what was actually found —
 they're no longer static placeholder text on this page (the curated
 `/reports/<slug>` pages still use static copy, since those are
@@ -94,8 +148,9 @@ JavaScript (very common for footer social icons on Wix/Squarespace/etc.
 site builders) would otherwise be invisible to every check that scans the
 HTML, most notably Social Media Presence. Visual Design depends on it even
 more directly — it reads loaded web fonts, decoded image dimensions, and
-computed layout straight off the live DOM, none of which exist from a
-plain fetch of the raw HTML.
+computed layout straight off the live DOM (and its vision-check layer
+needs an actual screenshot), none of which exist from a plain fetch of
+the raw HTML.
 
 If the browser itself fails to launch for any reason (a bundle or runtime
 issue on a given deployment), it falls back to a plain fetch automatically
@@ -121,13 +176,17 @@ cases without needing an external store (Redis/Vercel KV) that would add
 setup you'd have to configure and pay for.
 
 - **Rate limit**: max 5 requests per IP per 60 seconds; anything past that
-  gets a 429 with a friendly message instead of hitting PageSpeed at all.
+  gets a 429 with a friendly message instead of hitting PageSpeed (or the
+  vision model) at all.
 - **Cache**: a successful result is reused for 10 minutes if the same
   domain is checked again, so refreshing or re-checking the same site
-  doesn't burn another PageSpeed call.
+  doesn't burn another PageSpeed call — or another vision call.
 
 Both exist specifically to protect the PageSpeed quota discussed above
-from being burned through faster than necessary.
+from being burned through faster than necessary. The Visual Design vision
+check (see above) has its own additional global budget and per-minute cap
+on top of these, since unlike PageSpeed it draws down a finite, one-time
+free credit allotment rather than a renewing daily quota.
 
 ### Business name + location from structured data
 

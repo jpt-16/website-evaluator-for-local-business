@@ -36,6 +36,39 @@ const UA = 'Mozilla/5.0 (compatible; JTBuildsCo-WebsiteHealthReport/1.0)';
 const FETCH_TIMEOUT_MS = 8000;
 const BROWSER_NAV_TIMEOUT_MS = 12000;
 const PAGESPEED_TIMEOUT_MS = 15000;
+const CRAWL_FILE_TIMEOUT_MS = 5000;
+const VISION_TIMEOUT_MS = 20000;
+
+// NVIDIA's build.nvidia.com hosts several vision-capable models for free
+// (no card, ~1000-5000 one-time credits, 40 req/min account-wide) behind
+// an OpenAI-compatible endpoint. Overridable via env var since NVIDIA's
+// catalog changes over time.
+const VISION_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
+const VISION_MODEL = process.env.DESIGN_VISION_MODEL || 'meta/llama-3.2-11b-vision-instruct';
+// The hosted endpoint caps the whole request body around 250KB; stay well
+// under that (as base64 *text* characters, not raw image bytes) so a
+// screenshot never risks a rejected request. If it doesn't fit, the vision
+// check is skipped for that request rather than erroring.
+const VISION_MAX_IMAGE_B64_CHARS = 170000;
+
+const VISION_DESIGN_PROMPT =
+  "You are looking at a screenshot of a local service business's website homepage. It already passed a basic technical check (custom fonts, real photography, modern layout code) — your job is to judge whether it actually LOOKS good to a prospective customer, which is a different question. A site can use all the right technology and still look cluttered, cramped, dated, or amateurish.\n\n" +
+  'Consider: layout consistency, whitespace/spacing, visual hierarchy (is it obvious what matters most at a glance?), image quality and cropping, and color palette cohesion. Weigh all of that into one overall verdict — reserve "good" for a site that would genuinely look professional and trustworthy to a visitor, not just technically competent.\n\n' +
+  'Respond with ONLY a single JSON object and nothing else — no markdown code fences, no explanation outside the JSON. It must have exactly these two fields: {"status": "good" | "warning" | "bad", "description": "one or two plain-English sentences written directly to the site owner, starting with \\"Your site...\\", explaining the verdict in specific, concrete terms — not generic praise or criticism"}';
+
+// Free NVIDIA credits are a fixed one-time allotment (1000-5000 total),
+// not a renewing quota — these two caps exist to make that last, not just
+// to prevent abuse. Both are on top of (not instead of) the per-IP rate
+// limit below, since that alone doesn't bound a vision call specifically:
+// a single IP staying under it for an hour, or several different IPs,
+// could still burn through the free credits or trip NVIDIA's own 40/min
+// account-wide limit.
+const VISION_BUDGET_WINDOW_MS = 60 * 60 * 1000;
+const VISION_BUDGET_MAX = Number(process.env.DESIGN_VISION_MAX_PER_HOUR) || 100;
+let visionCallLog = []; // timestamps, across all IPs
+const VISION_RPM_WINDOW_MS = 60 * 1000;
+const VISION_RPM_MAX = 30; // stay safely under NVIDIA's account-wide 40/min
+let visionRpmLog = []; // timestamps, across all IPs
 
 // Best-effort only — these live in the function instance's memory, so
 // they reset on cold start and aren't shared across concurrent instances.
@@ -62,6 +95,14 @@ const COPYRIGHT_YEAR_RE = /(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–—]\s*)?(\
 // their presence is a very reliable signal a site hasn't been rebuilt
 // since, not a guess.
 const DEPRECATED_MARKUP_RE = /<font[\s>]|<center[\s>]|<marquee[\s>]|<blink[\s>]/i;
+// Matches a link whose href OR visible text is clearly a privacy policy /
+// terms page — most sites use one of these two conventions, not both.
+const PRIVACY_LINK_RE = /<a\b[^>]*href=["'][^"']*privacy[^"']*["']|>\s*privacy policy\s*</i;
+const TERMS_LINK_RE = /<a\b[^>]*href=["'][^"']*terms[^"']*["']|>\s*terms(?:\s+(?:of|&amp;|and)\s+(?:service|use|conditions))?\s*</i;
+// Structured data is the strongest signal (Google's own review markup);
+// the text fallback catches sites that show reviews without schema.
+const REVIEW_SCHEMA_RE = /"@type"\s*:\s*"(?:AggregateRating|Review)"/i;
+const REVIEWS_TEXT_RE = /testimonial|what (?:our )?(?:customers|clients) (?:say|are saying)|customer reviews|read our reviews/i;
 const JSONLD_RE = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
 const BUSINESS_TYPE_RE = /organization|localbusiness|business|store|shop|restaurant|professionalservice/i;
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'", nbsp: ' ' };
@@ -74,6 +115,54 @@ function joinList(items) {
   if (items.length <= 1) return items[0] || '';
   if (items.length === 2) return items[0] + ' and ' + items[1];
   return items.slice(0, -1).join(', ') + ', and ' + items[items.length - 1];
+}
+
+// The free, deterministic baseline for every request: concrete DOM/CSS
+// signals, not a taste judgment. Catches "objectively hasn't been rebuilt"
+// (default fonts, no photos, no modern layout, literal deprecated tags)
+// but not "technically fine, still looks cluttered/amateurish" — that's
+// what the vision check (below) exists to catch, layered on top of a
+// 'good' verdict from this function specifically.
+function heuristicDesignVerdict(html, designSignals) {
+  if (!designSignals) {
+    return {
+      status: 'unknown',
+      desc: "We couldn't fully render your site to check its visual design on the last check — try checking again in a bit.",
+    };
+  }
+  const hasDeprecatedMarkup = DEPRECATED_MARKUP_RE.test(html);
+  const positives = [
+    designSignals.usesCustomFont,
+    designSignals.usesModernLayout,
+    designSignals.realImages >= 2,
+  ].filter(Boolean).length;
+
+  if (hasDeprecatedMarkup) {
+    return {
+      status: 'bad',
+      desc: "Your site still uses HTML from the early 2000s (like <font> or <center> tags) — a strong signal to visitors, and to Google, that it hasn't been rebuilt in a very long time.",
+    };
+  }
+  if (positives === 3) {
+    return {
+      status: 'good',
+      desc: 'Your site uses custom fonts, real photography, and a modern layout — it reads as current, not dated.',
+    };
+  }
+  if (positives >= 1) {
+    const missing = [];
+    if (!designSignals.usesCustomFont) missing.push('custom fonts');
+    if (!designSignals.usesModernLayout) missing.push('a modern layout');
+    if (designSignals.realImages < 2) missing.push('real photography');
+    return {
+      status: 'warning',
+      desc: 'Your site is missing ' + joinList(missing) + " — small things individually, but often exactly what makes a site feel dated at first glance.",
+    };
+  }
+  return {
+    status: 'bad',
+    desc: "Your site relies on default system fonts, has no real photography, and uses an old-school layout — together, that's what makes a site feel outdated the moment someone lands on it.",
+  };
 }
 
 function normalizeDomain(raw) {
@@ -131,6 +220,112 @@ function checkRateLimit(ip) {
   return true;
 }
 
+// Returns false once VISION_BUDGET_MAX vision-model calls have happened
+// (from any IP) within the trailing hour — protects the finite free
+// credit pool, not just fair use per IP.
+function checkVisionBudget() {
+  const now = Date.now();
+  visionCallLog = visionCallLog.filter((t) => now - t < VISION_BUDGET_WINDOW_MS);
+  if (visionCallLog.length >= VISION_BUDGET_MAX) return false;
+  visionCallLog.push(now);
+  return true;
+}
+
+// Returns false once VISION_RPM_MAX vision-model calls have happened
+// (from any IP) within the trailing minute — keeps this account under
+// NVIDIA's own hard 40/min rate limit even under concurrent load.
+function checkVisionRpm() {
+  const now = Date.now();
+  visionRpmLog = visionRpmLog.filter((t) => now - t < VISION_RPM_WINDOW_MS);
+  if (visionRpmLog.length >= VISION_RPM_MAX) return false;
+  visionRpmLog.push(now);
+  return true;
+}
+
+// Only called when the heuristic above already says 'good' — this exists
+// specifically to catch the false positive it can't: a site that's
+// technically current (custom font, real photos, modern layout) but still
+// looks cluttered, cramped, or amateurish. Returns null (keep the
+// heuristic's 'good' verdict as-is) on any failure — missing API key,
+// budget/rate exhausted, oversized image, timeout, malformed response —
+// rather than blocking or guessing.
+async function evaluateVisualDesignWithVision(screenshotBase64) {
+  const apiKey = process.env.NVIDIA_API_KEY;
+  if (!apiKey) return null;
+  if (screenshotBase64.length > VISION_MAX_IMAGE_B64_CHARS) {
+    console.warn('[analyze] vision design check skipped — screenshot too large for the hosted request-body limit');
+    return null;
+  }
+  if (!checkVisionBudget()) {
+    console.warn('[analyze] vision design check skipped — hourly budget of', VISION_BUDGET_MAX, 'calls exhausted');
+    return null;
+  }
+  if (!checkVisionRpm()) {
+    console.warn('[analyze] vision design check skipped — per-minute budget of', VISION_RPM_MAX, 'calls exhausted');
+    return null;
+  }
+  try {
+    const res = await fetchWithTimeout(VISION_API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + apiKey,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        model: VISION_MODEL,
+        max_tokens: 300,
+        temperature: 0.2,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: VISION_DESIGN_PROMPT },
+            { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + screenshotBase64 } },
+          ],
+        }],
+      }),
+    }, VISION_TIMEOUT_MS);
+
+    if (!res.ok) {
+      console.error('[analyze] vision design check http', res.status, (await res.text().catch(() => '')).slice(0, 400));
+      return null;
+    }
+    const json = await res.json();
+    const text = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
+    if (!text) return null;
+
+    // The model is asked for pure JSON, but defensively pull out just the
+    // {...} block in case it wraps it in prose or a code fence anyway.
+    const match = String(text).match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    let parsed;
+    try {
+      parsed = JSON.parse(match[0]);
+    } catch (e) {
+      return null;
+    }
+    if (!parsed || !['good', 'warning', 'bad'].includes(parsed.status) || !parsed.description) return null;
+    return { status: parsed.status, desc: String(parsed.description).slice(0, 500) };
+  } catch (e) {
+    console.error('[analyze] vision design check failed —', e && e.message ? e.message : e);
+    return null;
+  }
+}
+
+// robots.txt / sitemap.xml existing is a real, if minor, crawlability
+// signal — separate from PageSpeed's on-page SEO score, which doesn't
+// check either. A non-2xx or any fetch error (timeout, DNS, etc.) both
+// just count as "not present" — same honest-guess-free spirit as
+// everything else here, no special-casing failure modes.
+async function checkCrawlFile(url) {
+  try {
+    const res = await fetchWithTimeout(url, { headers: { 'User-Agent': UA } }, CRAWL_FILE_TIMEOUT_MS);
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
 // Renders the page in a real headless browser so client-side-injected
 // content (social widgets, etc.) is visible, not just the initial HTML.
 async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
@@ -143,6 +338,11 @@ async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
   try {
     const page = await browser.newPage();
     await page.setUserAgent(ua);
+    // Fixed desktop size so the visual-design screenshot (below) shows a
+    // consistent, representative view rather than whatever puppeteer's
+    // undocumented default happens to be — most local-business sites are
+    // still designed desktop-first even when responsive.
+    await page.setViewport({ width: 1280, height: 800 });
     const t0 = Date.now();
     let response, usedUrl, sslOk;
     try {
@@ -184,6 +384,23 @@ async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
         return null;
       }
     });
+
+    // Only screenshot (and later, only spend a vision-model call) on sites
+    // the free heuristic already thinks look "good" — that's specifically
+    // where it can be wrong (technically current, still looks bad), and
+    // bounding it to that subset keeps the added cost/latency contained
+    // instead of hitting every single request. Quality is deliberately low
+    // (still plenty to judge layout/whitespace/color) to comfortably fit
+    // under the hosted vision API's request-body size limit as base64.
+    let designScreenshot = null;
+    if (heuristicDesignVerdict(html, designSignals).status === 'good') {
+      try {
+        designScreenshot = await page.screenshot({ type: 'jpeg', quality: 45, encoding: 'base64' });
+      } catch (e) {
+        designScreenshot = null; // non-fatal — vision check just gets skipped below
+      }
+    }
+
     return {
       statusCode: response ? response.status() : 0,
       usedUrl,
@@ -191,6 +408,7 @@ async function renderWithBrowser(httpsUrl, httpUrl, ua, timeoutMs) {
       html,
       elapsedMs: Date.now() - t0,
       designSignals,
+      designScreenshot,
     };
   } finally {
     await browser.close().catch(() => {});
@@ -206,12 +424,12 @@ async function fetchPlain(httpsUrl, httpUrl, ua) {
     const t0 = Date.now();
     const response = await fetchWithTimeout(httpsUrl, fetchOpts, FETCH_TIMEOUT_MS);
     const html = await response.text();
-    return { statusCode: response.status, usedUrl: httpsUrl, sslOk: true, html, elapsedMs: Date.now() - t0, designSignals: null };
+    return { statusCode: response.status, usedUrl: httpsUrl, sslOk: true, html, elapsedMs: Date.now() - t0, designSignals: null, designScreenshot: null };
   } catch (e) {
     const t0 = Date.now();
     const response = await fetchWithTimeout(httpUrl, fetchOpts, FETCH_TIMEOUT_MS);
     const html = await response.text();
-    return { statusCode: response.status, usedUrl: httpUrl, sslOk: false, html, elapsedMs: Date.now() - t0, designSignals: null };
+    return { statusCode: response.status, usedUrl: httpUrl, sslOk: false, html, elapsedMs: Date.now() - t0, designSignals: null, designScreenshot: null };
   }
 }
 
@@ -280,7 +498,14 @@ module.exports = async (req, res) => {
   const httpsUrl = 'https://' + domain;
   const httpUrl = 'http://' + domain;
 
-  let statusCode, usedUrl, sslOk, html, elapsedMs, designSignals;
+  // Kicked off now so it overlaps with the render/PageSpeed work below
+  // instead of adding to it — awaited later, right where it's needed.
+  const crawlFilesPromise = Promise.all([
+    checkCrawlFile(httpsUrl + '/robots.txt'),
+    checkCrawlFile(httpsUrl + '/sitemap.xml'),
+  ]);
+
+  let statusCode, usedUrl, sslOk, html, elapsedMs, designSignals, designScreenshot;
   try {
     const rendered = await renderWithBrowser(httpsUrl, httpUrl, UA, BROWSER_NAV_TIMEOUT_MS);
     statusCode = rendered.statusCode;
@@ -289,6 +514,7 @@ module.exports = async (req, res) => {
     html = rendered.html;
     elapsedMs = rendered.elapsedMs;
     designSignals = rendered.designSignals;
+    designScreenshot = rendered.designScreenshot;
   } catch (browserErr) {
     console.error('[analyze] headless render failed for', domain, '— falling back to plain fetch —', browserErr && browserErr.message);
     try {
@@ -299,6 +525,7 @@ module.exports = async (req, res) => {
       html = plain.html;
       elapsedMs = plain.elapsedMs;
       designSignals = plain.designSignals;
+      designScreenshot = plain.designScreenshot;
     } catch (fetchErr) {
       res.status(200).json({
         ok: false,
@@ -455,42 +682,21 @@ module.exports = async (req, res) => {
   }
 
   // --- Visual design (modern vs. dated look) ---------------------------
-  // Can't judge taste, but "looks old and boring" tends to have concrete,
-  // checkable fingerprints: default system fonts only, no real photography,
-  // an old-school (non-flex/grid) layout, or literal HTML4-era tags like
-  // <font>/<center>/<marquee>. This catches those, honestly, rather than
-  // guessing at aesthetics. Only available when the headless browser
-  // actually rendered the page (not the plain-fetch fallback), since it
-  // needs a live DOM to check loaded fonts/images/computed layout.
-  let designStatus, designDesc;
-  if (designSignals) {
-    const hasDeprecatedMarkup = DEPRECATED_MARKUP_RE.test(html);
-    const positives = [
-      designSignals.usesCustomFont,
-      designSignals.usesModernLayout,
-      designSignals.realImages >= 2,
-    ].filter(Boolean).length;
-
-    if (hasDeprecatedMarkup) {
-      designStatus = 'bad';
-      designDesc = "Your site still uses HTML from the early 2000s (like <font> or <center> tags) — a strong signal to visitors, and to Google, that it hasn't been rebuilt in a very long time.";
-    } else if (positives === 3) {
-      designStatus = 'good';
-      designDesc = 'Your site uses custom fonts, real photography, and a modern layout — it reads as current, not dated.';
-    } else if (positives >= 1) {
-      designStatus = 'warning';
-      const missing = [];
-      if (!designSignals.usesCustomFont) missing.push('custom fonts');
-      if (!designSignals.usesModernLayout) missing.push('a modern layout');
-      if (designSignals.realImages < 2) missing.push('real photography');
-      designDesc = 'Your site is missing ' + joinList(missing) + " — small things individually, but often exactly what makes a site feel dated at first glance.";
-    } else {
-      designStatus = 'bad';
-      designDesc = "Your site relies on default system fonts, has no real photography, and uses an old-school layout — together, that's what makes a site feel outdated the moment someone lands on it.";
+  // Two layers: a free, deterministic heuristic that runs on every
+  // request (concrete DOM/CSS signals — can't judge taste, doesn't try),
+  // then — only when that heuristic already says 'good' — a real vision
+  // model looks at an actual screenshot and can override the verdict. That
+  // second layer is what catches a site that's technically current but
+  // still looks cluttered or amateurish, which the heuristic alone can't.
+  let { status: designStatus, desc: designDesc } = heuristicDesignVerdict(html, designSignals);
+  if (designStatus === 'good' && designScreenshot) {
+    const visionVerdict = await evaluateVisualDesignWithVision(designScreenshot);
+    if (visionVerdict) {
+      designStatus = visionVerdict.status;
+      designDesc = visionVerdict.desc;
     }
-  } else {
-    designStatus = 'unknown';
-    designDesc = "We couldn't fully render your site to check its visual design on the last check — try checking again in a bit.";
+    // else: vision call failed/unavailable — keep the heuristic's 'good'
+    // verdict rather than blocking on it.
   }
 
   // --- Contact info visibility ------------------------------------------
@@ -504,6 +710,47 @@ module.exports = async (req, res) => {
   } else {
     contactStatus = 'bad';
     contactDesc = "We couldn't find a phone number anywhere on the site — visitors have no fast way to reach you.";
+  }
+
+  // --- Privacy Policy / Terms links -------------------------------------
+  let privacyStatus, privacyDesc;
+  if (PRIVACY_LINK_RE.test(html)) {
+    privacyStatus = 'good';
+    privacyDesc = 'Your site links to a privacy policy — visitors (and some ad/analytics platforms) expect to find one.';
+  } else if (TERMS_LINK_RE.test(html)) {
+    privacyStatus = 'warning';
+    privacyDesc = "Your site links to terms of some kind, but we didn't find a clearly-labeled privacy policy — worth adding one explicitly.";
+  } else {
+    privacyStatus = 'bad';
+    privacyDesc = "We didn't find a privacy policy or terms link anywhere on your site.";
+  }
+
+  // --- Reviews / testimonials presence ----------------------------------
+  // Structured data (Review/AggregateRating schema) is the stronger
+  // signal — it's what Google itself reads for review stars in search
+  // results — with a plain-text fallback for sites that show reviews
+  // without markup.
+  const reviewsStatus = (REVIEW_SCHEMA_RE.test(html) || REVIEWS_TEXT_RE.test(html)) ? 'good' : 'bad';
+  const reviewsDesc = reviewsStatus === 'good'
+    ? 'Your site highlights customer reviews or testimonials — real social proof that helps convince new visitors.'
+    : "We didn't find any reviews or testimonials on your site — visitors have no social proof that other customers trust you.";
+
+  // --- Crawlability (robots.txt / sitemap.xml) --------------------------
+  // Separate from PageSpeed's on-page SEO score, which checks neither —
+  // this is about whether Google can efficiently discover and crawl the
+  // site at all, not how well any single page is optimized.
+  const [hasRobots, hasSitemap] = await crawlFilesPromise;
+  let crawlabilityStatus, crawlabilityDesc;
+  if (hasRobots && hasSitemap) {
+    crawlabilityStatus = 'good';
+    crawlabilityDesc = 'Your site has both a robots.txt and a sitemap.xml — Google can find and crawl it efficiently.';
+  } else if (hasRobots || hasSitemap) {
+    crawlabilityStatus = 'warning';
+    const missing = hasRobots ? 'a sitemap.xml' : 'a robots.txt';
+    crawlabilityDesc = 'Your site has ' + (hasRobots ? 'a robots.txt' : 'a sitemap.xml') + ' but not ' + missing + ' — adding the other makes it easier for Google to crawl everything.';
+  } else {
+    crawlabilityStatus = 'bad';
+    crawlabilityDesc = "We didn't find a robots.txt or sitemap.xml — Google may be missing pages on your site simply because it can't find them.";
   }
 
   // --- Business name + location (structured data first, <title> fallback)
@@ -524,12 +771,13 @@ module.exports = async (req, res) => {
   }
 
   // --- Overall score: average of whichever categories we could actually
-  // verify (usually all 10 — 'unknown' only shows up when PageSpeed or the
+  // verify (usually all 13 — 'unknown' only shows up when PageSpeed or the
   // headless render itself failed, and is excluded here rather than
   // counted as a strike against the site).
   const measured = [
     hasWebsiteStatus, sslStatus, mobileStatus, speedStatus, socialStatus,
     accessibilityStatus, seoStatus, freshnessStatus, contactStatus, designStatus,
+    privacyStatus, reviewsStatus, crawlabilityStatus,
   ].map(toneScore).filter((score) => score !== null);
   const overallScore = Math.round(
     measured.reduce((sum, score) => sum + score, 0) / measured.length
@@ -552,6 +800,9 @@ module.exports = async (req, res) => {
     freshnessStatus,
     contactStatus,
     designStatus,
+    privacyStatus,
+    reviewsStatus,
+    crawlabilityStatus,
     descriptions: {
       hasWebsite: hasWebsiteDesc,
       mobile: mobileDesc,
@@ -563,6 +814,9 @@ module.exports = async (req, res) => {
       freshness: freshnessDesc,
       contact: contactDesc,
       design: designDesc,
+      privacy: privacyDesc,
+      reviews: reviewsDesc,
+      crawlability: crawlabilityDesc,
     },
   };
 

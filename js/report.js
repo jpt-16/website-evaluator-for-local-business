@@ -31,12 +31,15 @@
     freshness: 'freshnessStatus',
     contact: 'contactStatus',
     design: 'designStatus',
+    privacy: 'privacyStatus',
+    reviews: 'reviewsStatus',
+    crawlability: 'crawlabilityStatus',
   };
 
   // Shared business-priority order for both "What This Is Costing You"
   // and "What To Fix First" — same underlying issues, different framing
   // (impact vs. action). Not the checklist's display order.
-  var ISSUE_ORDER = ['hasWebsite', 'ssl', 'mobile', 'contact', 'design', 'speed', 'accessibility', 'seo', 'freshness', 'social'];
+  var ISSUE_ORDER = ['hasWebsite', 'ssl', 'mobile', 'contact', 'design', 'speed', 'accessibility', 'seo', 'crawlability', 'reviews', 'freshness', 'privacy', 'social'];
 
   // tipWarn falls back to tipBad (and vice versa) since curated reports
   // can set either status even where the live checker only ever produces
@@ -89,6 +92,20 @@
       tipBad: "The site reads as old and generic at a glance — that's often enough for a visitor to bounce before reading a word.",
       tipWarn: 'A few dated touches are holding the design back from feeling current.',
     },
+    crawlability: {
+      label: 'Add a sitemap and robots.txt',
+      tipBad: "Google can't efficiently find your pages without these — an easy, one-time fix.",
+      tipWarn: "You're missing one of robots.txt or sitemap.xml — worth adding the other.",
+    },
+    reviews: {
+      label: 'Show off your reviews',
+      tipBad: 'Add a testimonials section or review stars — social proof is one of the strongest things you can put in front of a new visitor.',
+    },
+    privacy: {
+      label: 'Add a privacy policy',
+      tipBad: "There's no privacy policy or terms link anywhere on the site — a quick, low-effort trust signal to add.",
+      tipWarn: 'Label your terms/privacy link clearly — right now it may not be obvious what it covers.',
+    },
   };
 
   var IMPACT_META = {
@@ -128,6 +145,17 @@
     design: {
       tipBad: "A dated-looking site quietly signals 'this business hasn't kept up' — even if the work itself is great.",
       tipWarn: "It's not glaring, but a slightly dated look is a small trust tax on every visitor who lands on it.",
+    },
+    crawlability: {
+      tipBad: "Pages Google can't find are pages that never show up in search — no matter how good they are.",
+      tipWarn: "Some pages may be slower to get discovered by Google than they should be.",
+    },
+    reviews: {
+      tipBad: "New visitors have nothing to reassure them that real customers have had a good experience — that's a real hesitation point.",
+    },
+    privacy: {
+      tipBad: "A missing privacy policy is a small but real red flag for visitors (and required in some places for ad/analytics tools).",
+      tipWarn: "An unclear terms/privacy link leaves visitors unsure what's actually being collected or agreed to.",
     },
   };
 
