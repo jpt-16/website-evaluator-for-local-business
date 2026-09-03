@@ -67,6 +67,11 @@
       <button type="submit" id="checkBtn">Check My Website</button>
     </form>
 
+    <button type="button" class="compare-toggle" id="compareToggle" aria-expanded="false" aria-controls="compareField">+ Compare to a competitor</button>
+    <div class="compare-field" id="compareField" hidden>
+      <input type="text" id="competitorInput" name="competitor" placeholder="competitor.com" autocomplete="off" autocapitalize="off" spellcheck="false">
+    </div>
+
     <ul class="trust-row">
       <li class="trust-chip"><span class="trust-dot"></span>Free</li>
       <li class="trust-chip"><span class="trust-dot"></span>Instant results</li>
@@ -119,6 +124,21 @@
     </header>
 
     <div class="body-content">
+
+      <div class="stat-strip" id="statStrip">
+        <div class="stat-tile stat-tile--good" data-stat="good">
+          <div class="stat-num">0</div>
+          <div class="stat-label">Passing</div>
+        </div>
+        <div class="stat-tile stat-tile--warn" data-stat="warning">
+          <div class="stat-num">0</div>
+          <div class="stat-label">Needs Work</div>
+        </div>
+        <div class="stat-tile stat-tile--bad" data-stat="bad">
+          <div class="stat-num">0</div>
+          <div class="stat-label">Failing</div>
+        </div>
+      </div>
 
       <section class="block">
         <div class="section-eyebrow"><span class="section-tick"></span><span>Section 1 &mdash; Diagnosis</span></div>
@@ -242,6 +262,23 @@
             <div class="pill"></div>
           </li>
         </ul>
+      </section>
+
+      <section class="block comparison-section" id="comparisonSection" hidden>
+        <div class="section-eyebrow"><span class="section-tick"></span><span>Head-to-Head</span></div>
+        <div class="section-title">How You Compare</div>
+        <div class="compare-scores">
+          <div class="compare-score-col">
+            <div class="compare-ring" id="compareRingYou"><div class="compare-ring-inner"><span id="compareScoreYou">–</span></div></div>
+            <div class="compare-label" id="compareLabelYou">You</div>
+          </div>
+          <div class="compare-vs">vs</div>
+          <div class="compare-score-col">
+            <div class="compare-ring" id="compareRingThem"><div class="compare-ring-inner"><span id="compareScoreThem">–</span></div></div>
+            <div class="compare-label" id="compareLabelThem">Competitor</div>
+          </div>
+        </div>
+        <div class="compare-gaps" id="compareGaps"></div>
       </section>
 
       <section class="block">

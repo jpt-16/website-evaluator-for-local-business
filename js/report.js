@@ -257,6 +257,7 @@
     animateGradeRing(document.getElementById('gradeRing'), deg, ringColorVar);
 
     var descriptions = data.descriptions || {};
+    var categoryLabels = {};
 
     Object.keys(CATEGORY_STATUS_KEY).forEach(function (key) {
       var row = document.querySelector('.check-row[data-key="' + key + '"]');
@@ -275,10 +276,100 @@
       if (descriptions[key]) {
         row.querySelector('.check-desc').textContent = descriptions[key];
       }
+      categoryLabels[key] = row.querySelector('.check-title').textContent;
     });
 
     buildCostList(data);
     buildFixList(data);
+    buildStatStrip(data);
+    buildComparison(data, categoryLabels);
+  }
+
+  // --- Dashboard summary strip ("N Passing / N Needs Work / N Failing") --
+  function buildStatStrip(data) {
+    var strip = document.getElementById('statStrip');
+    if (!strip) return;
+    var counts = { good: 0, warning: 0, bad: 0 };
+    Object.keys(CATEGORY_STATUS_KEY).forEach(function (key) {
+      var status = data[CATEGORY_STATUS_KEY[key]];
+      // 'unknown' is excluded here too, same as the overall score average —
+      // it means "couldn't verify," not "checked and it's bad."
+      if (counts[status] != null) counts[status]++;
+    });
+    var goodTile = strip.querySelector('[data-stat="good"] .stat-num');
+    var warnTile = strip.querySelector('[data-stat="warning"] .stat-num');
+    var badTile = strip.querySelector('[data-stat="bad"] .stat-num');
+    if (goodTile) goodTile.textContent = counts.good;
+    if (warnTile) warnTile.textContent = counts.warning;
+    if (badTile) badTile.textContent = counts.bad;
+  }
+
+  // --- Head-to-head competitor comparison (index.html only) --------------
+  // data.competitor is only set by initChecker() below when the optional
+  // competitor field was filled in and that check also succeeded — most
+  // renders (including every static/curated report) never have it, so the
+  // section just stays hidden.
+  var TONE_RANK = { good: 2, warning: 1, bad: 0 };
+
+  function joinList(items) {
+    if (items.length <= 1) return items[0] || '';
+    if (items.length === 2) return items[0] + ' and ' + items[1];
+    return items.slice(0, -1).join(', ') + ', and ' + items[items.length - 1];
+  }
+
+  function buildComparison(data, categoryLabels) {
+    var section = document.getElementById('comparisonSection');
+    if (!section) return;
+    var comp = data.competitor;
+    if (!comp) { section.hidden = true; return; }
+    section.hidden = false;
+
+    var youScore = data.overallScore != null ? data.overallScore : 0;
+    var themScore = comp.overallScore != null ? comp.overallScore : 0;
+    animateNumber(document.getElementById('compareScoreYou'), youScore, 700);
+    animateNumber(document.getElementById('compareScoreThem'), themScore, 700);
+    document.getElementById('compareLabelYou').textContent = data.businessName || 'You';
+    document.getElementById('compareLabelThem').textContent = comp.businessName || comp.town || 'Competitor';
+
+    var ringYou = document.getElementById('compareRingYou');
+    var ringThem = document.getElementById('compareRingThem');
+    ringYou.className = 'compare-ring compare-ring--' + gradeFromScore(youScore).tone;
+    ringThem.className = 'compare-ring compare-ring--' + gradeFromScore(themScore).tone;
+
+    var ahead = [];
+    var behind = [];
+    Object.keys(CATEGORY_STATUS_KEY).forEach(function (key) {
+      var youStatus = data[CATEGORY_STATUS_KEY[key]];
+      var themStatus = comp[CATEGORY_STATUS_KEY[key]];
+      if (TONE_RANK[youStatus] == null || TONE_RANK[themStatus] == null) return; // skip 'unknown' on either side
+      var diff = TONE_RANK[youStatus] - TONE_RANK[themStatus];
+      var label = categoryLabels[key] || key;
+      if (diff > 0) ahead.push(label);
+      else if (diff < 0) behind.push(label);
+    });
+
+    var gaps = document.getElementById('compareGaps');
+    gaps.innerHTML = '';
+    function addRow(tone, icon, text) {
+      var row = document.createElement('div');
+      row.className = 'compare-gap-row' + (tone ? ' compare-gap-row--' + tone : '');
+      var iconEl = document.createElement('span');
+      iconEl.className = 'compare-gap-icon';
+      iconEl.textContent = icon;
+      var textEl = document.createElement('span');
+      textEl.textContent = text;
+      row.appendChild(iconEl);
+      row.appendChild(textEl);
+      gaps.appendChild(row);
+    }
+    if (ahead.length) addRow('good', '✓', "You're ahead on " + joinList(ahead) + '.');
+    if (behind.length) addRow('bad', '!', "They're ahead on " + joinList(behind) + '.');
+    if (!ahead.length && !behind.length) {
+      var row = document.createElement('div');
+      row.className = 'compare-gap-row';
+      row.textContent = "You're neck and neck across the board.";
+      gaps.appendChild(row);
+    }
   }
 
   function buildCostList(data) {
@@ -520,11 +611,30 @@
     return v;
   }
 
+  // Optional "+ Compare to a competitor" disclosure above the trust chips.
+  // Collapsed by default so the primary hero stays focused on the main ask.
+  function initCompareToggle() {
+    var toggle = document.getElementById('compareToggle');
+    var field = document.getElementById('compareField');
+    if (!toggle || !field) return;
+    toggle.addEventListener('click', function () {
+      var opening = field.hidden;
+      field.hidden = !opening;
+      toggle.textContent = opening ? '− Compare to a competitor' : '+ Compare to a competitor';
+      toggle.setAttribute('aria-expanded', String(opening));
+      if (opening) {
+        var competitorInput = document.getElementById('competitorInput');
+        if (competitorInput) competitorInput.focus();
+      }
+    });
+  }
+
   function initChecker() {
     var form = document.getElementById('checkForm');
     if (!form) return;
 
     var input = document.getElementById('domainInput');
+    var competitorInput = document.getElementById('competitorInput');
     var btn = document.getElementById('checkBtn');
     var statusMsg = document.getElementById('statusMsg');
     var report = document.getElementById('report');
@@ -555,6 +665,7 @@
       e.preventDefault();
       var domain = normalizeDomainInput(input.value);
       if (!domain) return;
+      var competitorDomain = competitorInput ? normalizeDomainInput(competitorInput.value) : '';
 
       btn.disabled = true;
       btn.textContent = 'Checking…';
@@ -564,22 +675,39 @@
         skeleton.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
       setStatus('Running a full site check — this can take up to 30 seconds…', false);
-      track('check_started', { domain: domain });
+      track('check_started', { domain: domain, competitor: !!competitorDomain });
 
-      fetch('/api/analyze?domain=' + encodeURIComponent(domain))
-        .then(function (res) { return res.json(); })
-        .then(function (result) {
+      var mainFetch = fetch('/api/analyze?domain=' + encodeURIComponent(domain))
+        .then(function (res) { return res.json(); });
+
+      // Runs as its own request in parallel with the main check (not
+      // sequentially after it), and never blocks or fails the main report —
+      // if the competitor domain is invalid, unreachable, or just slow to
+      // fail, the comparison section simply stays hidden.
+      var competitorFetch = competitorDomain
+        ? fetch('/api/analyze?domain=' + encodeURIComponent(competitorDomain))
+            .then(function (res) { return res.json(); })
+            .catch(function () { return null; })
+        : Promise.resolve(null);
+
+      Promise.all([mainFetch, competitorFetch])
+        .then(function (results) {
+          var result = results[0];
+          var competitorResult = results[1];
           if (!result.ok) {
             setStatus(result.message || "We couldn't check that site. Try again.", true);
             track('check_failed', { domain: domain, reason: result.message || 'unknown' });
             return;
+          }
+          if (competitorResult && competitorResult.ok) {
+            result.competitor = competitorResult;
           }
           setStatus(null);
           render(result);
           updateShareLink(result);
           report.hidden = false;
           report.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          track('check_completed', { domain: domain, score: result.overallScore });
+          track('check_completed', { domain: domain, score: result.overallScore, hasCompetitor: !!result.competitor });
         })
         .catch(function () {
           setStatus("Something went wrong checking that site. Try again in a moment.", true);
@@ -599,6 +727,7 @@
     if (window.reportData) render(window.reportData);
     // index.html has no reportData — it's the live checker instead.
     initChecker();
+    initCompareToggle();
     initContactForm();
     initShareButton();
     initPdfButton();
